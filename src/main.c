@@ -278,6 +278,83 @@ int     read_peerinfo(struct peerinfo *pi) {
     return ret;
 }
 
+int     write_peerinfo(struct peerinfo *pi) {
+    FILE    *fp;
+    char    *b64_pubkey, *b64_master_pubkey;
+    size_t  b64_pubkey_maxlen, b64_master_pubkey_maxlen;
+    int     s;
+
+    if (pi == NULL) {
+        fprintf(stderr, "write_peerinfo(); pi == NULL\n");
+        return -1;
+    }
+
+    fp = fopen(UNILINK_PEERINFO, "w");
+    if (fp == NULL) {
+        fprintf(stderr, "write_peerinfo(); fopen failed\n");
+        return -2;
+    }
+
+    b64_pubkey_maxlen = sodium_base64_ENCODED_LEN(pi->pubkey_size,
+        sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
+
+    b64_pubkey = malloc(b64_pubkey_maxlen);
+    if (b64_pubkey == NULL) {
+        fprintf(stderr, "write_peerinfo(); malloc failed\n");
+        fclose(fp);
+        return -3;
+    }
+
+    sodium_bin2base64(b64_pubkey, b64_pubkey_maxlen, pi->pubkey,
+        pi->pubkey_size, sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
+
+    b64_master_pubkey_maxlen = sodium_base64_ENCODED_LEN(pi->master_pubkey_size,
+        sodium_base64_VARIANT_ORIGINAL_NO_PADDING);                        
+
+    b64_master_pubkey = malloc(b64_master_pubkey_maxlen);
+    if (b64_master_pubkey == NULL) {
+        fprintf(stderr, "write_peerinfo(); malloc failed\n");
+        fclose(fp);
+        free(b64_pubkey);
+        return -4;
+    }
+
+    sodium_bin2base64(b64_master_pubkey, b64_master_pubkey_maxlen,
+        pi->master_pubkey, pi->master_pubkey_size,
+        sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
+
+    s = fprintf(fp,
+            "%s\n"          /* port */
+            "%s\n"          /* alg_pubkey */
+            "%s\n"          /* pubkey (base64) */
+            "%s\n"          /* master_alg_pubkey */
+            "%s\n"          /* master_pubkey (base64) */
+            "%"SCNu32"\n",  /* master_sequence_num */
+            pi->port,
+            pi->alg_pubkey,
+            b64_pubkey,
+            pi->master_alg_pubkey,
+            b64_master_pubkey,
+            pi->master_sequence_num);
+
+    if (s < 0) {
+        fprintf(stderr, "write_peerinfo(); fprintf failed\n");
+        fclose(fp);
+        free(b64_pubkey);
+        free(b64_master_pubkey);
+        return -5;
+    }
+
+    free(b64_pubkey);
+    free(b64_master_pubkey);
+    fclose(fp);
+    return 0;
+}
+
+int     init_peerinfo(struct peerinfo *pi) {
+    
+}
+
 void    free_peerinfo(struct peerinfo *pi) {
     if (pi != NULL) {
         free(pi->port);

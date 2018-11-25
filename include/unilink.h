@@ -17,6 +17,8 @@ struct peerinfo {
 };
 
 int     read_peerinfo(struct peerinfo *pi);
+int     write_peerinfo(struct peerinfo *pi);
+int     init_peerinfo(struct peerinfo *pi);
 void    free_peerinfo(struct peerinfo *pi);
 int     create_server(int *fd, const char *port);
 void    server_loop(int fd);
