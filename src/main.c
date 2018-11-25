@@ -373,7 +373,7 @@ int     init_peerinfo(struct peerinfo *pi) {
     }
    
     pi->pk = malloc(crypto_sign_PUBLICKEYBYTES);
-    if (pk == NULL) {
+    if (pi->pk == NULL) {
         fprintf(stderr, "init_peerinfo(); malloc failed\n");
         free(pi->port);
         free(pi->alg_pk);
@@ -381,7 +381,7 @@ int     init_peerinfo(struct peerinfo *pi) {
     }
 
     pi->sk = malloc(crypto_sign_SECRETKEYBYTES);
-    if (sk == NULL) {
+    if (pi->sk == NULL) {
         fprintf(stderr, "init_peerinfo(); malloc failed\n");
         free(pi->pk);
         free(pi->port);
@@ -389,7 +389,7 @@ int     init_peerinfo(struct peerinfo *pi) {
         return -5;
     }
 
-    crypto_sign_keypair(pk, sk);
+    crypto_sign_keypair(pi->pk, pi->sk);
     
     pi->master_alg_pk = strdup(UNILINK_MASTER_ALG_PK);
     if (pi->master_alg_pk == NULL) {
@@ -412,11 +412,19 @@ int     init_peerinfo(struct peerinfo *pi) {
         return -7;
     }
 
-    if (sodium_base642bin(pi->master_pk, strlen(UNILINK_MASTER_PK)/4*3+2,
-        UNILINK_MASTER_PK, strlen(UNILINK_MASTER_PK), NULL,
-        &pi->master_pk_size, &b64_end) == -1
-        || b64_end != line + strlen(UNILINK_MASTER_PK) - 1) {
-        fprintf(stderr, "init_peerinfo(); invalid UNILINK_MASTER_PK\n");
+    if (sodium_base642bin(
+        pi->master_pk,
+        strlen(UNILINK_MASTER_PK)/4*3+2,
+        UNILINK_MASTER_PK,
+        strlen(UNILINK_MASTER_PK),
+        NULL,
+        &pi->master_pk_size,
+        &b64_end,
+        sodium_base64_VARIANT_ORIGINAL_NO_PADDING
+        ) == -1 || b64_end !=
+            UNILINK_MASTER_PK + strlen(UNILINK_MASTER_PK) - 1) {
+        fprintf(stderr,
+            "init_peerinfo(); invalid UNILINK_MASTER_PK\n");
         free(pi->pk);
         free(pi->sk);
         free(pi->port);
