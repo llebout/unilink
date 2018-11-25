@@ -103,7 +103,8 @@ void    server_loop(int fd) {
                 buf[size] = 0;
                 printf("incoming data: %s\n", buf);
                 // process incoming data
-                sendto(fd, buf, strlen((char *)buf), 0, &src_addr, addrlen);
+                sendto(fd, buf, strlen((char *)buf), 0,
+                    (struct sockaddr *) &src_addr, addrlen);
                 break;
             case 0:
                 // periodic tasks every tv.tv_sec seconds
@@ -481,13 +482,13 @@ int     main(void) {
     s = create_server(&serv_fd, pi.port);
     if (s < 0) {
         fprintf(stderr, "main(); create_server failed\n");
-        free_addrinfo(&pi);
+        free_peerinfo(&pi);
         return EXIT_FAILURE;
     }
 
     if (strcmp(pi.port, "0") == 0) {
         addrlen = sizeof addr;
-        s = getsockname(serv_fd, &addr, &addrlen);
+        s = getsockname(serv_fd, (struct sockaddr *) &addr, &addrlen);
         if (s == -1) {
             fprintf(stderr, "main(); getsockname failed\n");
             free_peerinfo(&pi);
@@ -495,8 +496,8 @@ int     main(void) {
             return EXIT_FAILURE;
         }
 
-        s = getnameinfo(&addr, addrlen, NULL, 0, port, sizeof port,
-                NI_NUMERICSERV);
+        s = getnameinfo((struct sockaddr *) &addr, addrlen, NULL, 0,
+                port, sizeof port, NI_NUMERICSERV);
         if (s != 0) {
             fprintf(stderr, "main(); getnameinfo failed\n");
             free_peerinfo(&pi);
