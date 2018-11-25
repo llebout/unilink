@@ -201,7 +201,7 @@ int     read_peerinfo(struct peerinfo *pi) {
                             &bin_len,
                             &b64_end,
                             sodium_base64_VARIANT_ORIGINAL_NO_PADDING
-                        ) == -1 || b64_end != line + b64_len - 1) {
+                        ) == -1) {
                         fprintf(stderr,
                             "read_peerinfo(); invalid pk\n");
                         free(bin);
@@ -213,22 +213,6 @@ int     read_peerinfo(struct peerinfo *pi) {
                 }
                 break;
             case 3:
-                if (strcmp(line, "x25519") == 0) {
-                    pi->master_alg_pk = strdup(line);
-                    if (pi->master_alg_pk == NULL) {
-                        fprintf(
-                            stderr,
-                            "read_peerinfo(); master_pk strdup failed\n"
-                        );
-                        ret = -10;
-                    }
-                } else {
-                    fprintf(stderr,
-                        "read_peerinfo(); invalid master_alg_pk\n");
-                    ret = -11;
-                }
-                break;
-            case 4:
                 b64_len = strlen(line);
                 /*
                     allocates theoretical maximum decoded length,
@@ -239,7 +223,7 @@ int     read_peerinfo(struct peerinfo *pi) {
                 if (bin == NULL) {
                     fprintf(stderr,
                         "read_peerinfo(); bin malloc failed\n");
-                    ret = -12;
+                    ret = -10;
                 } else {
                     if (sodium_base642bin(
                             bin,
@@ -250,31 +234,80 @@ int     read_peerinfo(struct peerinfo *pi) {
                             &bin_len,
                             &b64_end,
                             sodium_base64_VARIANT_ORIGINAL_NO_PADDING
-                        ) == -1 || b64_end != line + b64_len - 1) {
+                        ) == -1) {
+                        fprintf(stderr,
+                            "read_peerinfo(); invalid sk\n");
+                        free(bin);
+                        ret = -11;
+                    } else {
+                        pi->sk_size = bin_len;
+                        pi->sk = bin;
+                    }
+                }
+                break;
+            case 4:
+                if (strcmp(line, "x25519") == 0) {
+                    pi->master_alg_pk = strdup(line);
+                    if (pi->master_alg_pk == NULL) {
+                        fprintf(
+                            stderr,
+                            "read_peerinfo(); master_pk strdup failed\n"
+                        );
+                        ret = -12;
+                    }
+                } else {
+                    fprintf(stderr,
+                        "read_peerinfo(); invalid master_alg_pk\n");
+                    ret = -13;
+                }
+                break;
+            case 5:
+                b64_len = strlen(line);
+                /*
+                    allocates theoretical maximum decoded length,
+                    wastes some space but reduces code complexity.
+                */
+                bin = malloc(b64_len/4*3+2);
+                
+                if (bin == NULL) {
+                    fprintf(stderr,
+                        "read_peerinfo(); bin malloc failed\n");
+                    ret = -14;
+                } else {
+                    if (sodium_base642bin(
+                            bin,
+                            b64_len/4*3+2,
+                            line,
+                            b64_len,
+                            NULL,
+                            &bin_len,
+                            &b64_end,
+                            sodium_base64_VARIANT_ORIGINAL_NO_PADDING
+                        ) == -1) {
                         fprintf(stderr,
                             "read_peerinfo(); invalid master_pk\n");
                         free(bin);
-                        ret = -13;
+                        ret = -15;
                     } else {
                         pi->master_pk_size = bin_len;
                         pi->master_pk = bin;
                     }
                 }
                 break;
-            case 5:
+            case 6:
                 if (sscanf(line, "%"SCNu32, 
                         &pi->master_sequence_num) != 1) {
                     fprintf(stderr,
                         "read_peerinfo(); invalid master_sequence_num\n");
-                    ret = -14;
+                    ret = -16;
                 }
                 break;
         }
     }
 
-    if (s == -1 && nline < 5) {
+    if (s == -1 && nline < 6) {
         fprintf(stderr, "read_peerinfo(); invalid "UNILINK_PEERINFO"\n");
-        ret = -15;
+        ret = -17;
     }
 
     free(line);
@@ -284,8 +317,8 @@ int     read_peerinfo(struct peerinfo *pi) {
 
 int     write_peerinfo(struct peerinfo *pi) {
     FILE    *fp;
-    char    *b64_pk, *b64_master_pk;
-    size_t  b64_pk_maxlen, b64_master_pk_maxlen;
+    char    *b64_pk, *b64_sk, *b64_master_pk;
+    size_t  b64_pk_maxlen, b64_sk_maxlen, b64_master_pk_maxlen;
     int     s;
 
     if (pi == NULL) {
@@ -312,6 +345,19 @@ int     write_peerinfo(struct peerinfo *pi) {
     sodium_bin2base64(b64_pk, b64_pk_maxlen, pi->pk,
         pi->pk_size, sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
 
+    b64_sk_maxlen = sodium_base64_ENCODED_LEN(pi->sk_size,
+        sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
+
+    b64_sk = malloc(b64_sk_maxlen);
+    if (b64_sk == NULL) {
+        fprintf(stderr, "write_peerinfo(); malloc failed\n");
+        fclose(fp);
+        return -4;
+    }
+
+    sodium_bin2base64(b64_sk, b64_sk_maxlen, pi->sk,
+        pi->sk_size, sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
+
     b64_master_pk_maxlen = sodium_base64_ENCODED_LEN(pi->master_pk_size,
         sodium_base64_VARIANT_ORIGINAL_NO_PADDING);                        
 
@@ -320,7 +366,7 @@ int     write_peerinfo(struct peerinfo *pi) {
         fprintf(stderr, "write_peerinfo(); malloc failed\n");
         fclose(fp);
         free(b64_pk);
-        return -4;
+        return -5;
     }
 
     sodium_bin2base64(b64_master_pk, b64_master_pk_maxlen,
@@ -331,12 +377,14 @@ int     write_peerinfo(struct peerinfo *pi) {
             "%s\n"          /* port */
             "%s\n"          /* alg_pk */
             "%s\n"          /* pk (base64) */
+            "%s\n"          /* sk (base64) */
             "%s\n"          /* master_alg_pk */
             "%s\n"          /* master_pk (base64) */
             "%"SCNu32"\n",  /* master_sequence_num */
             pi->port,
             pi->alg_pk,
             b64_pk,
+            b64_sk,
             pi->master_alg_pk,
             b64_master_pk,
             pi->master_sequence_num);
@@ -346,7 +394,7 @@ int     write_peerinfo(struct peerinfo *pi) {
         fclose(fp);
         free(b64_pk);
         free(b64_master_pk);
-        return -5;
+        return -6;
     }
 
     free(b64_pk);
@@ -392,6 +440,9 @@ int     init_peerinfo(struct peerinfo *pi) {
         return -5;
     }
 
+    pi->pk_size = crypto_sign_PUBLICKEYBYTES;
+    pi->sk_size = crypto_sign_SECRETKEYBYTES;
+
     crypto_sign_keypair(pi->pk, pi->sk);
     
     pi->master_alg_pk = strdup(UNILINK_MASTER_ALG_PK);
@@ -424,8 +475,7 @@ int     init_peerinfo(struct peerinfo *pi) {
         &pi->master_pk_size,
         &b64_end,
         sodium_base64_VARIANT_ORIGINAL_NO_PADDING
-        ) == -1 || b64_end !=
-            UNILINK_MASTER_PK + strlen(UNILINK_MASTER_PK) - 1) {
+        ) == -1) {
         fprintf(stderr,
             "init_peerinfo(); invalid UNILINK_MASTER_PK\n");
         free(pi->pk);
@@ -513,6 +563,12 @@ int     main(void) {
             close(serv_fd);
             return EXIT_FAILURE;
         }
+
+        s = write_peerinfo(&pi);
+        if (s < 0) {
+            // Not a fatal error, possibly means the file system is readonly
+            fprintf(stderr, "main(); write_peerinfo failed\n");
+        }       
     }
 
     printf("main(); bound port %s\n", pi.port);

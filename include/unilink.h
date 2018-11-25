@@ -13,6 +13,7 @@ struct peerinfo {
     char            *alg_pk;
     size_t          pk_size;
     unsigned char   *pk;
+    size_t          sk_size;
     unsigned char   *sk;
     char            *master_alg_pk;
     size_t          master_pk_size;
