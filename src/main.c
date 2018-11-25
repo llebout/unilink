@@ -116,12 +116,13 @@ void    server_loop(int fd) {
 }
 
 int     read_peerinfo(struct peerinfo *pi) {
-    FILE    *fp;
-    int     nline, port, ret;
-    char    *line, *b64_end;
-    void    *bin;
-    size_t  n, bin_len, b64_len;
-    ssize_t s;
+    FILE        *fp;
+    int         nline, port, ret;
+    char        *line;
+    const char  *b64_end;
+    void        *bin;
+    size_t      n, bin_len, b64_len;
+    ssize_t     s;
 
     if (pi == NULL) {
         fprintf(stderr, "read_peerinfo(); pi == NULL\n");
@@ -162,16 +163,16 @@ int     read_peerinfo(struct peerinfo *pi) {
                 }
                 break;
             case 1:
-                if (strcmp(line, "X25519") == 0) {
-                    pi->alg_pubkey = strdup(line);
-                    if (pi->alg_pubkey == NULL) {
+                if (strcmp(line, "x25519") == 0) {
+                    pi->alg_pk = strdup(line);
+                    if (pi->alg_pk == NULL) {
                         fprintf(stderr,
-                            "read_peerinfo(); pubkey strdup failed\n");
+                            "read_peerinfo(); pk strdup failed\n");
                         ret = -6;
                     }
                 } else {
                     fprintf(stderr,
-                        "read_peerinfo(); invalid alg_pubkey\n");
+                        "read_peerinfo(); invalid alg_pk\n");
                     ret = -7;
                 }
                 break;
@@ -195,32 +196,32 @@ int     read_peerinfo(struct peerinfo *pi) {
                             b64_len,
                             NULL,
                             &bin_len,
-                            (const char ** const) &b64_end,
+                            &b64_end,
                             sodium_base64_VARIANT_ORIGINAL_NO_PADDING
                         ) == -1 || b64_end != line + b64_len - 1) {
                         fprintf(stderr,
-                            "read_peerinfo(); invalid pubkey\n");
+                            "read_peerinfo(); invalid pk\n");
                         free(bin);
                         ret = -9;
                     } else {
-                        pi->pubkey_size = bin_len;
-                        pi->pubkey = bin;
+                        pi->pk_size = bin_len;
+                        pi->pk = bin;
                     }
                 }
                 break;
             case 3:
-                if (strcmp(line, "X25519") == 0) {
-                    pi->master_alg_pubkey = strdup(line);
-                    if (pi->master_alg_pubkey == NULL) {
+                if (strcmp(line, "x25519") == 0) {
+                    pi->master_alg_pk = strdup(line);
+                    if (pi->master_alg_pk == NULL) {
                         fprintf(
                             stderr,
-                            "read_peerinfo(); master_pubkey strdup failed\n"
+                            "read_peerinfo(); master_pk strdup failed\n"
                         );
                         ret = -10;
                     }
                 } else {
                     fprintf(stderr,
-                        "read_peerinfo(); invalid master_alg_pubkey\n");
+                        "read_peerinfo(); invalid master_alg_pk\n");
                     ret = -11;
                 }
                 break;
@@ -244,16 +245,16 @@ int     read_peerinfo(struct peerinfo *pi) {
                             b64_len,
                             NULL,
                             &bin_len,
-                            (const char ** const)&b64_end,
+                            &b64_end,
                             sodium_base64_VARIANT_ORIGINAL_NO_PADDING
                         ) == -1 || b64_end != line + b64_len - 1) {
                         fprintf(stderr,
-                            "read_peerinfo(); invalid master_pubkey\n");
+                            "read_peerinfo(); invalid master_pk\n");
                         free(bin);
                         ret = -13;
                     } else {
-                        pi->master_pubkey_size = bin_len;
-                        pi->master_pubkey = bin;
+                        pi->master_pk_size = bin_len;
+                        pi->master_pk = bin;
                     }
                 }
                 break;
@@ -280,8 +281,8 @@ int     read_peerinfo(struct peerinfo *pi) {
 
 int     write_peerinfo(struct peerinfo *pi) {
     FILE    *fp;
-    char    *b64_pubkey, *b64_master_pubkey;
-    size_t  b64_pubkey_maxlen, b64_master_pubkey_maxlen;
+    char    *b64_pk, *b64_master_pk;
+    size_t  b64_pk_maxlen, b64_master_pk_maxlen;
     int     s;
 
     if (pi == NULL) {
@@ -295,73 +296,149 @@ int     write_peerinfo(struct peerinfo *pi) {
         return -2;
     }
 
-    b64_pubkey_maxlen = sodium_base64_ENCODED_LEN(pi->pubkey_size,
+    b64_pk_maxlen = sodium_base64_ENCODED_LEN(pi->pk_size,
         sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
 
-    b64_pubkey = malloc(b64_pubkey_maxlen);
-    if (b64_pubkey == NULL) {
+    b64_pk = malloc(b64_pk_maxlen);
+    if (b64_pk == NULL) {
         fprintf(stderr, "write_peerinfo(); malloc failed\n");
         fclose(fp);
         return -3;
     }
 
-    sodium_bin2base64(b64_pubkey, b64_pubkey_maxlen, pi->pubkey,
-        pi->pubkey_size, sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
+    sodium_bin2base64(b64_pk, b64_pk_maxlen, pi->pk,
+        pi->pk_size, sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
 
-    b64_master_pubkey_maxlen = sodium_base64_ENCODED_LEN(pi->master_pubkey_size,
+    b64_master_pk_maxlen = sodium_base64_ENCODED_LEN(pi->master_pk_size,
         sodium_base64_VARIANT_ORIGINAL_NO_PADDING);                        
 
-    b64_master_pubkey = malloc(b64_master_pubkey_maxlen);
-    if (b64_master_pubkey == NULL) {
+    b64_master_pk = malloc(b64_master_pk_maxlen);
+    if (b64_master_pk == NULL) {
         fprintf(stderr, "write_peerinfo(); malloc failed\n");
         fclose(fp);
-        free(b64_pubkey);
+        free(b64_pk);
         return -4;
     }
 
-    sodium_bin2base64(b64_master_pubkey, b64_master_pubkey_maxlen,
-        pi->master_pubkey, pi->master_pubkey_size,
+    sodium_bin2base64(b64_master_pk, b64_master_pk_maxlen,
+        pi->master_pk, pi->master_pk_size,
         sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
 
     s = fprintf(fp,
             "%s\n"          /* port */
-            "%s\n"          /* alg_pubkey */
-            "%s\n"          /* pubkey (base64) */
-            "%s\n"          /* master_alg_pubkey */
-            "%s\n"          /* master_pubkey (base64) */
+            "%s\n"          /* alg_pk */
+            "%s\n"          /* pk (base64) */
+            "%s\n"          /* master_alg_pk */
+            "%s\n"          /* master_pk (base64) */
             "%"SCNu32"\n",  /* master_sequence_num */
             pi->port,
-            pi->alg_pubkey,
-            b64_pubkey,
-            pi->master_alg_pubkey,
-            b64_master_pubkey,
+            pi->alg_pk,
+            b64_pk,
+            pi->master_alg_pk,
+            b64_master_pk,
             pi->master_sequence_num);
 
     if (s < 0) {
         fprintf(stderr, "write_peerinfo(); fprintf failed\n");
         fclose(fp);
-        free(b64_pubkey);
-        free(b64_master_pubkey);
+        free(b64_pk);
+        free(b64_master_pk);
         return -5;
     }
 
-    free(b64_pubkey);
-    free(b64_master_pubkey);
+    free(b64_pk);
+    free(b64_master_pk);
     fclose(fp);
     return 0;
 }
 
 int     init_peerinfo(struct peerinfo *pi) {
+    const char      *b64_end;
+
+    if (pi == NULL) {
+        fprintf(stderr, "init_peerinfo(); pi == NULL\n");
+        return -1;
+    }
+ 
+    pi->port = strdup("0");
+    if (pi->port == NULL) {
+        fprintf(stderr, "init_peerinfo(); strdup failed\n");
+        return -2;
+    }
+
+    pi->alg_pk = strdup("x25519");
+    if (pi->alg_pk == NULL) {
+        free(pi->port);
+        return -3;
+    }
+   
+    pi->pk = malloc(crypto_sign_PUBLICKEYBYTES);
+    if (pk == NULL) {
+        fprintf(stderr, "init_peerinfo(); malloc failed\n");
+        free(pi->port);
+        free(pi->alg_pk);
+        return -4;
+    }
+
+    pi->sk = malloc(crypto_sign_SECRETKEYBYTES);
+    if (sk == NULL) {
+        fprintf(stderr, "init_peerinfo(); malloc failed\n");
+        free(pi->pk);
+        free(pi->port);
+        free(pi->alg_pk);
+        return -5;
+    }
+
+    crypto_sign_keypair(pk, sk);
     
+    pi->master_alg_pk = strdup(UNILINK_MASTER_ALG_PK);
+    if (pi->master_alg_pk == NULL) {
+        fprintf(stderr, "init_peerinfo(); strdup failed\n");
+        free(pi->pk);
+        free(pi->sk);
+        free(pi->port);
+        free(pi->alg_pk);
+        return -6;
+    }
+
+    pi->master_pk = malloc(strlen(UNILINK_MASTER_PK)/4*3+2);
+    if (pi->master_pk == NULL) {
+        fprintf(stderr, "init_peerinfo(); malloc failed\n");
+        free(pi->pk);
+        free(pi->sk);
+        free(pi->port);
+        free(pi->alg_pk);
+        free(pi->master_alg_pk);
+        return -7;
+    }
+
+    if (sodium_base642bin(pi->master_pk, strlen(UNILINK_MASTER_PK)/4*3+2,
+        UNILINK_MASTER_PK, strlen(UNILINK_MASTER_PK), NULL,
+        &pi->master_pk_size, &b64_end) == -1
+        || b64_end != line + strlen(UNILINK_MASTER_PK) - 1) {
+        fprintf(stderr, "init_peerinfo(); invalid UNILINK_MASTER_PK\n");
+        free(pi->pk);
+        free(pi->sk);
+        free(pi->port);
+        free(pi->alg_pk);
+        free(pi->master_alg_pk);
+        free(pi->master_pk);
+        return -8;
+    }
+
+    pi->master_sequence_num = 0;
+
+    return 0;
 }
 
 void    free_peerinfo(struct peerinfo *pi) {
     if (pi != NULL) {
         free(pi->port);
-        free(pi->alg_pubkey);
-        free(pi->pubkey);
-        free(pi->master_alg_pubkey);
-        free(pi->master_pubkey);
+        free(pi->alg_pk);
+        free(pi->pk);
+        free(pi->sk);
+        free(pi->master_alg_pk);
+        free(pi->master_pk);
     }
     free(pi);
 }
@@ -372,7 +449,7 @@ int     main(void) {
     int             serv_fd;
 
     if (sodium_init() < 0) {
-        fprintf(stderr, "sodium_init() failed\n");
+        fprintf(stderr, "main(); sodium_init() failed\n");
         return EXIT_FAILURE;
     }
 

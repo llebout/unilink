@@ -5,14 +5,18 @@
 
 #define UNILINK_PEERINFO "unilink_peerinfo"
 
+#define UNILINK_MASTER_ALG_PK "x25519"
+#define UNILINK_MASTER_PK "MCowBQYDK2VuAyEAgfQh7ke0sf6or3nod0DJGPTyV6LPD7z1YSa0MzwCdH4="
+
 struct peerinfo {
     char            *port;
-    char            *alg_pubkey;
-    size_t          pubkey_size;
-    unsigned char   *pubkey;
-    char            *master_alg_pubkey;
-    size_t          master_pubkey_size;
-    unsigned char   *master_pubkey;
+    char            *alg_pk;
+    size_t          pk_size;
+    unsigned char   *pk;
+    unsigned char   *sk;
+    char            *master_alg_pk;
+    size_t          master_pk_size;
+    unsigned char   *master_pk;
     uint32_t        master_sequence_num;
 };
 
