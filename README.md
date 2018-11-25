@@ -1,5 +1,5 @@
 # unilink
-Peer-to-peer Remote Control Protocol resistant to detection at the network level.
+Peer-to-peer Remote Control Protocol resistant to shutdown and detection at the network level.
 
 ## Goal
 Demonstrate that every network detection system is doomed to failure.

@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+#include <arpa/inet.h>
+
 #include <sys/select.h>
 #include <sys/time.h>
 
@@ -69,14 +71,14 @@ int     create_server(int *fd, const char *port) {
 }
 
 void    server_loop(int fd) {
-    unsigned char   buf[USHRT_MAX];
-    ssize_t         size;
-    fd_set          rfds;
-    struct timeval  tv;
-    int             must_quit;
-    int             s;
-    struct sockaddr src_addr;
-    socklen_t       addrlen;
+    unsigned char           buf[USHRT_MAX];
+    ssize_t                 size;
+    fd_set                  rfds;
+    struct timeval          tv;
+    int                     must_quit;
+    int                     s;
+    struct sockaddr_storage src_addr;
+    socklen_t               addrlen;
 
     must_quit = 0;
     while (!must_quit) {
@@ -92,7 +94,7 @@ void    server_loop(int fd) {
             case 1:
                 addrlen = sizeof src_addr;
                 size = recvfrom(fd, buf, sizeof buf, 0,
-                            &src_addr, &addrlen);
+                            (struct sockaddr *) &src_addr, &addrlen);
                 if (size == -1) {
                     fprintf(stderr, "server_loop(); recvfrom failed\n");
                     must_quit = 1;
@@ -448,30 +450,71 @@ void    free_peerinfo(struct peerinfo *pi) {
         free(pi->master_alg_pk);
         free(pi->master_pk);
     }
-    free(pi);
 }
 
 int     main(void) {
-    struct peerinfo pi;
-    int             s;
-    int             serv_fd;
+    struct peerinfo         pi;
+    int                     s, serv_fd;
+    struct sockaddr_storage addr;
+    socklen_t               addrlen;
+    char                    port[NI_MAXSERV];
 
     if (sodium_init() < 0) {
-        fprintf(stderr, "main(); sodium_init() failed\n");
+        fprintf(stderr, "main(); sodium_init failed\n");
         return EXIT_FAILURE;
     }
 
     s = read_peerinfo(&pi);
     if (s < 0) {
-        fprintf(stderr, "main(); read_peerinfo failed\n");
-        return EXIT_FAILURE;
+        s = init_peerinfo(&pi);
+        if (s < 0) {
+            fprintf(stderr, "main(); init_peerinfo failed\n");
+            return EXIT_FAILURE;
+        }
+        s = write_peerinfo(&pi);
+        if (s < 0) {
+            // Not a fatal error, possibly means the file system is readonly
+            fprintf(stderr, "main(); write_peerinfo failed\n");
+        }
     }
 
     s = create_server(&serv_fd, pi.port);
     if (s < 0) {
         fprintf(stderr, "main(); create_server failed\n");
+        free_addrinfo(&pi);
         return EXIT_FAILURE;
     }
+
+    if (strcmp(pi.port, "0") == 0) {
+        addrlen = sizeof addr;
+        s = getsockname(serv_fd, &addr, &addrlen);
+        if (s == -1) {
+            fprintf(stderr, "main(); getsockname failed\n");
+            free_peerinfo(&pi);
+            close(serv_fd);
+            return EXIT_FAILURE;
+        }
+
+        s = getnameinfo(&addr, addrlen, NULL, 0, port, sizeof port,
+                NI_NUMERICSERV);
+        if (s != 0) {
+            fprintf(stderr, "main(); getnameinfo failed\n");
+            free_peerinfo(&pi);
+            close(serv_fd);
+            return EXIT_FAILURE;
+        }
+
+        free(pi.port);
+        pi.port = strdup(port);
+        if (pi.port == NULL) {
+            fprintf(stderr, "main(); strdup failed\n");
+            free_peerinfo(&pi);
+            close(serv_fd);
+            return EXIT_FAILURE;
+        }
+    }
+
+    printf("main(); bound port %s\n", pi.port);
 
     server_loop(serv_fd);
 
