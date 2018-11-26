@@ -2,3 +2,4 @@ Update server.c:server_loop with support for both tcp and udp
 Create a list of commands to be accepted through udp or tcp
 Reminder that udp packets must be of same size in requests and responses to prevent DDoS amplification attacks
 Create data flow documentation for each command
+Implement byte per byte state machine parsers for peerinfo and later network parsing code
