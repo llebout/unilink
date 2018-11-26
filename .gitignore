@@ -53,6 +53,7 @@ dkms.conf
 
 # Unilink data files
 unilink_*
+unilink
 
 # Vim temporary files
 *.swp
