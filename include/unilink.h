@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define UNILINK_PEERINFO "unilink_peerinfo"
+#define UNILINK_PEERLIST "unilink_peerlist"
 
 #define UNILINK_MASTER_ALG_PK "x25519"
 #define UNILINK_MASTER_PK "MCowBQYDK2VuAyEAgfQh7ke0sf6or3nod0DJGPTyV6LPD7z1YSa0MzwCdH4="
@@ -25,7 +26,8 @@ int     read_peerinfo(struct peerinfo *pi);
 int     write_peerinfo(struct peerinfo *pi);
 int     init_peerinfo(struct peerinfo *pi);
 void    free_peerinfo(struct peerinfo *pi);
-int     create_server(int *fd, const char *port);
-void    server_loop(int fd);
+int     create_udp_server(int *udp_fd, const char *port);
+int     create_tcp_server(int *tcp_fd, const char *port);
+void    server_loop(int udp_fd, int tcp_fd);
 
 #endif

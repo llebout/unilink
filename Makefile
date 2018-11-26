@@ -6,8 +6,8 @@ LDFLAGS += `pkg-config --libs libsodium`
 
 NAME = unilink
 
-SRCS = src/main.c
-OBJS = src/main.o
+SRCS = src/main.c src/server.c src/peerinfo.c
+OBJS = ${SRCS:.c=.o}
 
 $(NAME): $(OBJS)
 	$(CC) $(LDFLAGS) $(OBJS) -o $(NAME)
