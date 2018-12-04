@@ -121,51 +121,5 @@ int     create_udp_server(int *udp_fd, const char *port) {
 }
 
 void    server_loop(int udp_fd, int tcp_fd) {
-    unsigned char           buf[USHRT_MAX];
-    ssize_t                 size;
-    fd_set                  rfds;
-    struct timeval          tv;
-    int                     must_quit;
-    int                     s;
-    struct sockaddr_storage src_addr;
-    socklen_t               addrlen;
-
-    must_quit = 0;
-    while (!must_quit) {
-        FD_ZERO(&rfds);
-        FD_SET(fd, &rfds);
-
-        memset(&tv, 0, sizeof(tv));
-        tv.tv_sec = 300;
-        tv.tv_usec = 0;
-
-        s = select(fd + 1, &rfds, NULL, NULL, &tv);
-        switch (s) {
-            case 1:
-                addrlen = sizeof src_addr;
-                size = recvfrom(fd, buf, sizeof buf, 0,
-                            (struct sockaddr *) &src_addr, &addrlen);
-                if (size == -1) {
-                    fprintf(stderr, "server_loop(); recvfrom failed\n");
-                    must_quit = 1;
-                    break;
-                }
-                buf[size] = 0;
-                printf("incoming data: %s\n", buf);
-                // process incoming data
-                sendto(fd, buf, strlen((char *)buf), 0,
-                    (struct sockaddr *) &src_addr, addrlen);
-                break;
-            case 0:
-                // periodic tasks every tv.tv_sec seconds
-                printf("periodic task\n");
-                break;
-            case -1:
-                fprintf(stderr, "server_loop(); select failed\n");
-                must_quit = 1;
-                break;
-        }
-    }
+    
 }
-
-
