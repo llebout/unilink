@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <search.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -120,6 +121,6 @@ int     create_udp_server(int *udp_fd, const char *port) {
     return 0;
 }
 
-void    server_loop(int udp_fd, int tcp_fd) {
-    
+int     server_loop(int udp_fd, int tcp_fd) {
+        
 }

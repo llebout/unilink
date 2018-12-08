@@ -29,7 +29,7 @@ int     init_peerinfo(struct peerinfo *pi);
 void    free_peerinfo(struct peerinfo *pi);
 int     create_udp_server(int *udp_fd, const char *port);
 int     create_tcp_server(int *tcp_fd, const char *port);
-void    server_loop(int udp_fd, int tcp_fd);
+int     server_loop(int udp_fd, int tcp_fd);
 
 typedef enum e_cmdtype {
     CMD_PING = 0,
@@ -38,13 +38,12 @@ typedef enum e_cmdtype {
 } cmdtype;
 
 struct cmdinfo {
-    uint32_t        type,
-    int             is_reply,
-    char            **lines,
-    size_t          end_size,
-    unsigned char   *end,
+    uint32_t        type;
+    int             is_reply;
+    char            **lines;
+    size_t          end_size;
+    unsigned char   *end;
 };
-
 
 /*  Example CMD_PING raw command data
  *  
@@ -71,12 +70,14 @@ struct cmdinfo {
  *  }
  */
 
-typedef int cmd_handler(struct cmdinfo *ci); 
+typedef int cmd_handler(struct cmdinfo *); 
 
 struct cmd_handler_que {
-    void        *forw,
-    void        *back,
+    void        *forw;
+    void        *back;
     cmd_handler *f;
 };
+
+
 
 #endif
