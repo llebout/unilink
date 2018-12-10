@@ -183,8 +183,8 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
 int     server_loop(int udp_fd, int tcp_fd) {
     static struct pollfd    fds[2050];
     static unsigned char    buf[65535];
-    int                     nfds, s;
-    size_t                  i;
+    int                     s;
+    size_t                  nfds, i;
     struct sockaddr_storage sa;
     socklen_t               sa_len;
 
@@ -195,36 +195,39 @@ int     server_loop(int udp_fd, int tcp_fd) {
     fds[1].fd = tcp_fd;
     fds[1].events = POLLIN;
     ++nfds;
-    while (1) {
+    for (;;) {
         s = poll(fds, nfds, 300000);
         if (s > 0) {
             for (i = 0; i < nfds; ++i) {
                 if (fds[i].revents & POLLIN) {
-                    switch (fds[i].fd) {
-                        case udp_fd:
-                            // read and send to handler
-                            break;
-                        case tcp_fd:
-                            // accept and add to fds
-                            if (nfds < sizeof fds / sizeof *fds) {
-                                s = accept(tcp_fd, NULL, NULL);
-                                if (s < 0) {
-                                    fprintf(stderr, "server_loop();"
-                                        " accept failed\n");
-                                } else {
-                                    fds[nfds].fd = s;
-                                    fds[nfds].events = POLLIN;
-                                    ++nfds;
-                                }
+                    s = fds[i].fd;
+                    if (s == udp_fd) {
+                        // read and send to handler
+                        (void)buf;
+                        (void)sa;
+                        (void)sa_len;
+                    } else if (s == tcp_fd) {
+                        // accept and add to fds
+                        if (nfds < sizeof fds / sizeof *fds) {
+                            s = accept(tcp_fd, NULL, NULL);
+                            if (s < 0) {
+                                fprintf(stderr, "server_loop();"
+                                    " accept failed\n");
+                            } else {
+                                fds[nfds].fd = s;
+                                fds[nfds].events = POLLIN;
+                                ++nfds;
                             }
-                            break;
-                        default:
-                            // read tcp stream and buffer
-                            // if incomplete
-                            
-                            break;
+                        }
+                    } else {
+                        // read tcp stream and bufferize
+                        // if incomplete
+                        (void)buf;
+                        (void)sa;
+                        (void)sa_len;
                     }
                 }
+                
             }
         } else if (s == 0) {
             // timed out.
