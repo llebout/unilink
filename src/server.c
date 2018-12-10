@@ -13,6 +13,9 @@
 #include <sys/select.h>
 #include <sys/time.h>
 
+#include <poll.h>
+#include <signal.h>
+
 #include <inttypes.h>
 
 #include <errno.h>
@@ -60,10 +63,18 @@ int     create_tcp_server(int *tcp_fd, const char *port) {
 
     if (rp == NULL) {
         freeaddrinfo(res);
-
         fprintf(stderr,
             "create_tcp_server(); bind failed\n");
         return -2;
+    }
+
+    s = listen(tcp_sock, 1024);
+    if (s == -1) {
+        close(tcp_sock);
+        freeaddrinfo(res);
+        fprintf(stderr,
+            "create_tcp_server(); listen failed\n");
+        return -3;
     }
 
     *tcp_fd = tcp_sock;
@@ -121,6 +132,102 @@ int     create_udp_server(int *udp_fd, const char *port) {
     return 0;
 }
 
+ssize_t is_complete_command(unsigned char *buf, size_t size) {
+    int             n_line, x;
+    long int        end_size;
+    size_t          line_len;
+    unsigned char   *p, *k, *j;
+
+    for (line_len = 0, n_line = 0, p = buf;
+            p < buf + size;
+            ++p) {
+        if (*p == '\n') {
+            ++n_line;
+            // printf("%s\n", "++n_line");
+            if (line_len == 0 && n_line >= 5) {
+                // printf("%s\n", "line_len == 0 && n_line >= 5");
+                j = p + 1;
+                k = p;
+                for (x = 0; k >= buf; --k) {
+                    if (*k == '\n') {
+                        ++x;
+                        // printf("%s\n", "++x");
+                    }
+                    if (x == 3) {
+                        // printf("%s\n", "x == 3");
+                        ++k;
+                        end_size = strtol((const char *)k,
+                            NULL, 10);
+                        if (end_size >= 0 &&
+                            end_size <= (buf + size - j)) {
+                            return j - buf + end_size;
+                        } else {
+                          /*  printf("%s\n", "end_size < 0"
+                                "|| end_size <= (buf + size - j)");
+                         */ return -1;
+                        }
+                    }
+                }
+                return -1;
+            }
+            // printf("%s\n", "line_len = 0");
+            line_len = 0;
+        } else {
+            // printf("%s\n", "++line_len");
+            ++line_len;
+        }
+    }
+    return -1;
+}
+
 int     server_loop(int udp_fd, int tcp_fd) {
-        
+    static struct pollfd    fds[2050];
+    static unsigned char    buf[65535];
+    int                     nfds, s;
+    size_t                  i;
+    struct sockaddr_storage sa;
+    socklen_t               sa_len;
+
+    nfds = 0;
+    fds[0].fd = udp_fd;
+    fds[0].events = POLLIN;
+    ++nfds;
+    fds[1].fd = tcp_fd;
+    fds[1].events = POLLIN;
+    ++nfds;
+    while (1) {
+        s = poll(fds, nfds, 300000);
+        if (s > 0) {
+            for (i = 0; i < nfds; ++i) {
+                if (fds[i].revents & POLLIN) {
+                    switch (fds[i].fd) {
+                        case udp_fd:
+                            // read and send to handler
+                            break;
+                        case tcp_fd:
+                            // accept and add to fds
+                            if (nfds < sizeof fds / sizeof *fds) {
+                                s = accept(tcp_fd, NULL, NULL);
+                                if (s < 0) {
+                                    fprintf(stderr, "server_loop();"
+                                        " accept failed\n");
+                                } else {
+                                    fds[nfds].fd = s;
+                                    fds[nfds].events = POLLIN;
+                                    ++nfds;
+                                }
+                            }
+                            break;
+                        default:
+                            // read tcp stream and buffer
+                            // if incomplete
+                            
+                            break;
+                    }
+                }
+            }
+        } else if (s == 0) {
+            // timed out.
+        }
+    }
 }

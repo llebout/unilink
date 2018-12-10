@@ -20,6 +20,21 @@
 
 #include <unilink.h>
 
+/* static char *test_command =
+"unilink\n"
+"0\n"
+"0\n"
+"Greetings!\n"
+"I am a member of the unilink network.\n"
+"57\n"
+"\n"
+"\n\n\n\nThis is binary data that ends with the end of the packet."
+;
+
+static char *test2_command =
+"\n\n\n\n\n\n\n\n1\n\n\n\n"
+; */
+
 int     main(void) {
     struct peerinfo         pi;
     int                     s, udp_fd, tcp_fd;
@@ -31,6 +46,12 @@ int     main(void) {
         fprintf(stderr, "main(); sodium_init failed\n");
         return EXIT_FAILURE;
     }
+
+    /* (void)test2_command;
+    printf("%ld\n", is_complete_command
+        ((unsigned char *) test_command, strlen(test_command)));
+
+    return EXIT_SUCCESS; */
 
     s = read_peerinfo(&pi);
     if (s < 0) {

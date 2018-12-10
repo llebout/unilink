@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
 
 #include <sodium.h>
 
@@ -262,13 +263,13 @@ int     write_peerinfo(struct peerinfo *pi) {
         sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
 
     s = fprintf(fp,
-            "%s\n"          /* port */
-            "%s\n"          /* alg_pk */
-            "%s\n"          /* pk (base64) */
-            "%s\n"          /* sk (base64) */
-            "%s\n"          /* master_alg_pk */
-            "%s\n"          /* master_pk (base64) */
-            "%"SCNu32"\n",  /* master_sequence_num */
+            "%s\n"         /* port */
+            "%s\n"         /* alg_pk */
+            "%s\n"         /* pk (base64) */
+            "%s\n"         /* sk (base64) */
+            "%s\n"         /* master_alg_pk */
+            "%s\n"         /* master_pk (base64) */
+            "%"SCNu32"\n", /* master_sequence_num */
             pi->port,
             pi->alg_pk,
             b64_pk,
