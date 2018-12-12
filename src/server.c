@@ -235,7 +235,10 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                     " recvfrom failed\n");
                             goto discard_fd;
                         }
+                       
                         
+                        buf[s]=0; printf("%d\n%s\n", s, buf);
+
                         fb = fbque;
                         fbtmp = NULL;
                         while (fb) {
@@ -245,6 +248,9 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                 if (buftmp == NULL) {
                                     fprintf(stderr, "server_loop();"
                                         " realloc failed\n");
+                                    if (fb->size + s == 0) {
+                                        fb->buf = NULL;
+                                    }
                                     goto discard_fd;
                                 }
                                 memcpy(buftmp + fb->size,
@@ -254,6 +260,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                                 if (is_complete_command(fb->buf,
                                         fb->size) > 0) {
+                                    printf("buffer call handler\n");
                                     //call handler
                                     goto flush_buffer;
                                 }
@@ -263,6 +270,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         //no active buffer found
 
                         if (is_complete_command(buf, s) > 0) {
+                            printf("call handler\n");
                             //call handler
                             break;
                         }
@@ -291,17 +299,19 @@ int     server_loop(int udp_fd, int tcp_fd) {
                             fbque = fb;
                             ++fbq_size;
                         }
+                        break;
 discard_fd:
                         close(fds[i].fd);
  
                         fdtmp = fds[i].fd;
                         fds[i].fd = -1;
-                        --nfds;
                         for (k = i; k < nfds; ++k) {
                             fds[k].fd = fds[k+1].fd;
-                        }                       
+                        }
+                        --nfds;
 
 flush_buffer:
+                        printf("flushing buffer\n");
                         fb = fbque;
                         fbtmp = NULL;
                         while (fb) {
@@ -309,6 +319,10 @@ flush_buffer:
                                 free(fb->buf);
                                 remque(fb);
                                 fbtmp = fb;
+                                --fbq_size;
+                                if (fbq_size == 0) {
+                                    fbque = NULL;
+                                }
                             }
                             fb = fb->forw;
                             if (fbtmp != NULL) {
