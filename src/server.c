@@ -237,7 +237,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         }
                        
                         
-                        buf[s]=0; printf("%d\n%s\n", s, buf);
+                        // buf[s]=0; printf("%d\n%s\n", s, buf);
 
                         fb = fbque;
                         fbtmp = NULL;
@@ -260,7 +260,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                                 if (is_complete_command(fb->buf,
                                         fb->size) > 0) {
-                                    printf("buffer call handler\n");
+                                    // printf("buffer call handler\n");
                                     //call handler
                                     goto flush_buffer;
                                 }
@@ -270,7 +270,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         //no active buffer found
 
                         if (is_complete_command(buf, s) > 0) {
-                            printf("call handler\n");
+                            // printf("call handler\n");
                             //call handler
                             break;
                         }
@@ -311,7 +311,7 @@ discard_fd:
                         --nfds;
 
 flush_buffer:
-                        printf("flushing buffer\n");
+                        // printf("flushing buffer\n");
                         fb = fbque;
                         fbtmp = NULL;
                         while (fb) {
