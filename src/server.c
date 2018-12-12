@@ -191,7 +191,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
     struct fd_buffer_que    *fb, *fbtmp;
     struct fd_buffer_que    *fbque;
 
-    bque = NULL;
+    fbque = NULL;
     fbq_size = 0;
     nfds = 0;
     fds[0].fd = udp_fd;
@@ -228,7 +228,8 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         memset(&sa, 0, sizeof sa);
                         sa_len = sizeof sa;
                         s = recvfrom(fds[i].fd, buf,
-                                sizeof buf, 0, &sa, &sa_len);
+                                sizeof buf, 0,
+                                (struct sockaddr *) &sa, &sa_len);
                         if (s == -1) {
                             fprintf(stderr, "server_loop();"
                                     " recvfrom failed\n");
@@ -248,11 +249,11 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                 }
                                 memcpy(buftmp + fb->size,
                                     buf, s);
-                                fd->buf = buftmp;
-                                fd->size += s;
+                                fb->buf = buftmp;
+                                fb->size += s;
 
-                                if (is_complete_command(fd->buf,
-                                        fd->size) > 0) {
+                                if (is_complete_command(fb->buf,
+                                        fb->size) > 0) {
                                     //call handler
                                     goto flush_buffer;
                                 }
