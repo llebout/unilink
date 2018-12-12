@@ -84,4 +84,12 @@ struct cmd_handler_que {
     cmd_handler *f;
 };
 
+struct fd_buffer_que {
+    void            *forw;
+    void            *back;
+    int             fd;
+    size_t          size;
+    unsigned char   *buf;
+};
+
 #endif

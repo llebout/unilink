@@ -31,7 +31,7 @@ int     create_tcp_server(int *tcp_fd, const char *port) {
 
     if (tcp_fd == NULL) {
         fprintf(stderr,
-            "create_tcp_server(); tcp_fd == NULL\n");
+                "create_tcp_server(); tcp_fd == NULL\n");
         return -1;
     }
 
@@ -44,7 +44,7 @@ int     create_tcp_server(int *tcp_fd, const char *port) {
     s = getaddrinfo(NULL, port, &hints, &res);
     if (s != 0) {
         fprintf(stderr,
-            "create_tcp_server(); getaddrinfo failed\n");
+                "create_tcp_server(); getaddrinfo failed\n");
         return -1;
     }
 
@@ -64,7 +64,7 @@ int     create_tcp_server(int *tcp_fd, const char *port) {
     if (rp == NULL) {
         freeaddrinfo(res);
         fprintf(stderr,
-            "create_tcp_server(); bind failed\n");
+                "create_tcp_server(); bind failed\n");
         return -2;
     }
 
@@ -73,7 +73,7 @@ int     create_tcp_server(int *tcp_fd, const char *port) {
         close(tcp_sock);
         freeaddrinfo(res);
         fprintf(stderr,
-            "create_tcp_server(); listen failed\n");
+                "create_tcp_server(); listen failed\n");
         return -3;
     }
 
@@ -89,7 +89,7 @@ int     create_udp_server(int *udp_fd, const char *port) {
 
     if (udp_fd == NULL) {
         fprintf(stderr,
-            "create_udp_server(); udp_fd == NULL\n");
+                "create_udp_server(); udp_fd == NULL\n");
         return -1;
     }
 
@@ -102,7 +102,7 @@ int     create_udp_server(int *udp_fd, const char *port) {
     s = getaddrinfo(NULL, port, &hints, &res);
     if (s != 0) {
         fprintf(stderr,
-            "create_udp_server(); getaddrinfo failed\n");
+                "create_udp_server(); getaddrinfo failed\n");
         return -2;
     }
 
@@ -123,7 +123,7 @@ int     create_udp_server(int *udp_fd, const char *port) {
         freeaddrinfo(res);
 
         fprintf(stderr,
-            "create_udp_server(); bind failed\n");
+                "create_udp_server(); bind failed\n");
         return -3;
     }
 
@@ -157,14 +157,14 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
                         // printf("%s\n", "x == 3");
                         ++k;
                         end_size = strtol((const char *)k,
-                            NULL, 10);
+                                NULL, 10);
                         if (end_size >= 0 &&
-                            end_size <= (buf + size - j)) {
+                                end_size <= (buf + size - j)) {
                             return j - buf + end_size;
                         } else {
-                          /*  printf("%s\n", "end_size < 0"
+                            /*  printf("%s\n", "end_size < 0"
                                 "|| end_size <= (buf + size - j)");
-                         */ return -1;
+                                */ return -1;
                         }
                     }
                 }
@@ -183,11 +183,16 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
 int     server_loop(int udp_fd, int tcp_fd) {
     static struct pollfd    fds[2050];
     static unsigned char    buf[65535];
-    int                     s;
-    size_t                  nfds, i;
+    unsigned char           *buftmp;
+    int                     s, fdtmp;
+    size_t                  nfds, i, k, fbq_size;
     struct sockaddr_storage sa;
     socklen_t               sa_len;
+    struct fd_buffer_que    *fb, *fbtmp;
+    struct fd_buffer_que    *fbque;
 
+    bque = NULL;
+    fbq_size = 0;
     nfds = 0;
     fds[0].fd = udp_fd;
     fds[0].events = POLLIN;
@@ -212,7 +217,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
                             s = accept(tcp_fd, NULL, NULL);
                             if (s < 0) {
                                 fprintf(stderr, "server_loop();"
-                                    " accept failed\n");
+                                        " accept failed\n");
                             } else {
                                 fds[nfds].fd = s;
                                 fds[nfds].events = POLLIN;
@@ -220,14 +225,100 @@ int     server_loop(int udp_fd, int tcp_fd) {
                             }
                         }
                     } else {
-                        // read tcp stream and bufferize
-                        // if incomplete
-                        (void)buf;
-                        (void)sa;
-                        (void)sa_len;
+                        memset(&sa, 0, sizeof sa);
+                        sa_len = sizeof sa;
+                        s = recvfrom(fds[i].fd, buf,
+                                sizeof buf, 0, &sa, &sa_len);
+                        if (s == -1) {
+                            fprintf(stderr, "server_loop();"
+                                    " recvfrom failed\n");
+                            goto discard_fd;
+                        }
+                        
+                        fb = fbque;
+                        fbtmp = NULL;
+                        while (fb) {
+                            if (fb->fd == fds[i].fd) {
+                                buftmp = realloc(fb->buf,
+                                            fb->size + s);
+                                if (buftmp == NULL) {
+                                    fprintf(stderr, "server_loop();"
+                                        " realloc failed\n");
+                                    goto discard_fd;
+                                }
+                                memcpy(buftmp + fb->size,
+                                    buf, s);
+                                fd->buf = buftmp;
+                                fd->size += s;
+
+                                if (is_complete_command(fd->buf,
+                                        fd->size) > 0) {
+                                    //call handler
+                                    goto flush_buffer;
+                                }
+                            }
+                            fb = fb->forw;
+                        }
+                        //no active buffer found
+
+                        if (is_complete_command(buf, s) > 0) {
+                            //call handler
+                            break;
+                        }
+
+                        fb = calloc(1, sizeof *fb);
+                        if (fb == NULL) {
+                            fprintf(stderr, "server_loop();"
+                                    " calloc failed\n");
+                            goto discard_fd;
+                        }
+
+                        fb->fd = fds[i].fd;
+                        fb->size = s;
+
+                        fb->buf = malloc(s);
+                        if (fb->buf == NULL) { 
+                            fprintf(stderr, "server_loop();"
+                                    " malloc failed\n");
+                            goto discard_fd;
+                        }
+
+                        memcpy(fb->buf, buf, s);
+
+                        if (fbque == NULL) {
+                            insque(fb, NULL);
+                            fbque = fb;
+                            ++fbq_size;
+                        }
+discard_fd:
+                        close(fds[i].fd);
+ 
+                        fdtmp = fds[i].fd;
+                        fds[i].fd = -1;
+                        --nfds;
+                        for (k = i; k < nfds; ++k) {
+                            fds[k].fd = fds[k+1].fd;
+                        }                       
+
+flush_buffer:
+                        fb = fbque;
+                        fbtmp = NULL;
+                        while (fb) {
+                            if (fb->fd == fdtmp) {
+                                free(fb->buf);
+                                remque(fb);
+                                fbtmp = fb;
+                            }
+                            fb = fb->forw;
+                            if (fbtmp != NULL) {
+                                free(fbtmp);
+                                fbtmp = NULL;
+                            }
+                        }
+
                     }
                 }
-                
+
             }
         } else if (s == 0) {
             // timed out.
