@@ -206,6 +206,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
             for (i = 0; i < nfds; ++i) {
                 if (fds[i].revents & POLLIN) {
                     s = fds[i].fd;
+                    fdtmp = s;
                     if (s == udp_fd) {
                         // read and send to handler
                         (void)buf;
@@ -234,23 +235,26 @@ int     server_loop(int udp_fd, int tcp_fd) {
                             fprintf(stderr, "server_loop();"
                                     " recvfrom failed\n");
                             goto discard_fd;
+                        } else if (s == 0) {
+                            goto discard_fd;
                         }
                        
-                        
-                        // buf[s]=0; printf("%d\n%s\n", s, buf);
-
                         fb = fbque;
                         fbtmp = NULL;
-                        while (fb) {
+                        while (fb) { // seek for existing buffer
                             if (fb->fd == fds[i].fd) {
+
+                                // don't allow buffer to grow past
+                                // 128KB for a single incomplete
+                                // command
+                                if (fb->size + s > 131072)
+                                    goto discard_fd;
+
                                 buftmp = realloc(fb->buf,
                                             fb->size + s);
                                 if (buftmp == NULL) {
                                     fprintf(stderr, "server_loop();"
                                         " realloc failed\n");
-                                    if (fb->size + s == 0) {
-                                        fb->buf = NULL;
-                                    }
                                     goto discard_fd;
                                 }
                                 memcpy(buftmp + fb->size,
@@ -260,17 +264,16 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                                 if (is_complete_command(fb->buf,
                                         fb->size) > 0) {
-                                    // printf("buffer call handler\n");
                                     //call handler
                                     goto flush_buffer;
                                 }
+                                break;
                             }
                             fb = fb->forw;
                         }
                         //no active buffer found
 
                         if (is_complete_command(buf, s) > 0) {
-                            // printf("call handler\n");
                             //call handler
                             break;
                         }
@@ -294,24 +297,32 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                         memcpy(fb->buf, buf, s);
 
-                        if (fbque == NULL) {
+                        if (fbque == NULL) { // list is empty
                             insque(fb, NULL);
                             fbque = fb;
-                            ++fbq_size;
+                        } else {
+                            fbtmp = fbque;
+                            while (fbtmp) {
+                                // find last elem to set as back
+                                if (fbtmp->forw == NULL) {
+                                    insque(fb, fbtmp);
+                                }
+                                fbtmp = fbtmp->forw;
+                            }
                         }
+                        ++fbq_size;
+
                         break;
 discard_fd:
                         close(fds[i].fd);
  
-                        fdtmp = fds[i].fd;
+                        --nfds;
                         fds[i].fd = -1;
                         for (k = i; k < nfds; ++k) {
                             fds[k].fd = fds[k+1].fd;
                         }
-                        --nfds;
 
 flush_buffer:
-                        // printf("flushing buffer\n");
                         fb = fbque;
                         fbtmp = NULL;
                         while (fb) {
@@ -330,8 +341,8 @@ flush_buffer:
                                 fbtmp = NULL;
                             }
                         }
-
                     }
+                    break;
                 }
 
             }
