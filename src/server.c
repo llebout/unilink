@@ -18,6 +18,8 @@
 
 #include <inttypes.h>
 
+#include <time.h>
+
 #include <errno.h>
 
 #include <sodium.h>
@@ -144,18 +146,14 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
             ++p) {
         if (*p == '\n') {
             ++n_line;
-            // printf("%s\n", "++n_line");
             if (line_len == 0 && n_line >= 5) {
-                // printf("%s\n", "line_len == 0 && n_line >= 5");
                 j = p + 1;
                 k = p;
                 for (x = 0; k >= buf; --k) {
                     if (*k == '\n') {
                         ++x;
-                        // printf("%s\n", "++x");
                     }
                     if (x == 3) {
-                        // printf("%s\n", "x == 3");
                         ++k;
                         end_size = strtol((const char *)k,
                                 NULL, 10);
@@ -163,18 +161,14 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
                                 end_size <= (buf + size - j)) {
                             return j - buf + end_size;
                         } else {
-                            /*  printf("%s\n", "end_size < 0"
-                                "|| end_size <= (buf + size - j)");
-                                */ return -1;
+                            return -1;
                         }
                     }
                 }
                 return -1;
             }
-            // printf("%s\n", "line_len = 0");
             line_len = 0;
         } else {
-            // printf("%s\n", "++line_len");
             ++line_len;
         }
     }
@@ -186,12 +180,13 @@ int     server_loop(int udp_fd, int tcp_fd) {
     static unsigned char            buf[65535];
     unsigned char                   *buftmp;
     int                             s, fdtmp;
+    time_t                          run_check;
     size_t                          nfds, i, k;
     struct sockaddr_storage         sa;
     socklen_t                       sa_len;
     struct fd_buffer                *fb;
     LIST_HEAD(fb_head, fd_buffer)   fb_que
-                    = LIST_HEAD_INITIALIZER(fb_que);
+        = LIST_HEAD_INITIALIZER(fb_que);
 
     LIST_INIT(&fb_que);
     nfds = 0;
@@ -201,13 +196,20 @@ int     server_loop(int udp_fd, int tcp_fd) {
     fds[1].fd = tcp_fd;
     fds[1].events = POLLIN;
     ++nfds;
+    run_check = time(NULL);
     for (;;) {
-        s = poll(fds, nfds, 300000);
+        s = poll(fds, nfds, 1000);
         if (s > 0) {
             for (i = 0; i < nfds; ++i) {
-                if (fds[i].revents & POLLIN) {
-                    s = fds[i].fd;
-                    fdtmp = s;
+                s = fdtmp = fds[i].fd;
+
+                if (fds[i].revents & POLLNVAL) {
+                    goto discard_fd; 
+                } else if (fds[i].revents & POLLERR) {
+                    goto discard_fd;
+                } else if (fds[i].revents & POLLHUP) {
+                    goto discard_fd;
+                } else if (fds[i].revents & POLLIN) {
                     if (s == udp_fd) {
                         // read and send to handler
                         (void)buf;
@@ -224,6 +226,8 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                 fds[nfds].fd = s;
                                 fds[nfds].events = POLLIN;
                                 ++nfds;
+                                // we modified fds and nfds so break
+                                break;
                             }
                         }
                     } else {
@@ -249,28 +253,29 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                     goto discard_fd;
 
                                 buftmp = realloc(fb->buf,
-                                            fb->size + s);
+                                        fb->size + s);
                                 if (buftmp == NULL) {
                                     fprintf(stderr, "server_loop();"
-                                        " realloc failed\n");
+                                            " realloc failed\n");
                                     goto discard_fd;
                                 }
                                 memcpy(buftmp + fb->size,
-                                    buf, s);
+                                        buf, s);
                                 fb->buf = buftmp;
                                 fb->size += s;
+                                fb->last_active = time(NULL);
 
                                 if (is_complete_command(fb->buf,
-                                        fb->size) > 0) {
+                                            fb->size) > 0) {
                                     //call handler
                                     goto flush_buffer;
                                 }
-                                break;
+                                goto next_fd;
                             }
                         }
-
                         //no active buffer found
-                       if (is_complete_command(buf, s) > 0) {
+
+                        if (is_complete_command(buf, s) > 0) {
                             //call handler
                             break;
                         }
@@ -284,9 +289,11 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                         fb->fd = fds[i].fd;
                         fb->size = s;
+                        fb->last_active = time(NULL);
 
                         fb->buf = malloc(s);
-                        if (fb->buf == NULL) { 
+                        if (fb->buf == NULL) {
+                            free(fb);
                             fprintf(stderr, "server_loop();"
                                     " malloc failed\n");
                             goto discard_fd;
@@ -295,33 +302,60 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         memcpy(fb->buf, buf, s);
 
                         LIST_INSERT_HEAD(&fb_que, fb, e);
-
-                        break;
-discard_fd:
-                        close(fds[i].fd);
- 
-                        --nfds;
-                        fds[i].fd = -1;
-                        for (k = i; k < nfds; ++k) {
-                            fds[k].fd = fds[k+1].fd;
-                        }
-
-flush_buffer:
-                        LIST_FOREACH(fb, &fb_que, e) {
-                            if (fb->fd == fdtmp) {
-                                LIST_REMOVE(fb, e);
-                                free(fb->buf);
-                                free(fb);
-                                break;
-                            }
-                        }
                     }
-                    break;
+                }
+next_fd:
+                continue; // don't go there
+discard_fd:
+                close(fds[i].fd);
+
+                --nfds;
+                for (k = i; k < nfds; ++k) {
+                    fds[k].fd = fds[k+1].fd;
                 }
 
+flush_buffer:
+                LIST_FOREACH(fb, &fb_que, e) {
+                    if (fb->fd == fdtmp) {
+                        LIST_REMOVE(fb, e);
+                        free(fb->buf);
+                        free(fb);
+                        break;
+                    }
+                }
+                break; // we modified fds and nfds so break
             }
         } else if (s == 0) {
             // timed out.
         }
+
+        if (run_check > (time(NULL) - 30)) {
+            continue;
+        }
+        run_check = time(NULL);
+
+re_iterate:
+        LIST_FOREACH(fb, &fb_que, e) {
+            if (fb->last_active < (time(NULL) - 30)) {
+                LIST_REMOVE(fb, e);
+
+                close(fb->fd);
+
+                for (i = 0; i < nfds; ++i) {
+                    if (fds[i].fd == fb->fd) {
+                        --nfds;
+                        for (k = i; k < nfds; ++k) {
+                            fds[k].fd = fds[k+1].fd;
+                        }
+                        break;
+                    }
+                }
+
+                free(fb->buf);
+                free(fb);
+                goto re_iterate;
+            }
+        }
+
     }
 }

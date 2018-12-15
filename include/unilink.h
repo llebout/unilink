@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <sys/socket.h>
+#include <time.h>
 
 #include <queue.h>
 
@@ -88,6 +89,7 @@ struct cmd_handler_que {
 
 struct fd_buffer {
     LIST_ENTRY(fd_buffer)   e;
+    time_t                  last_active;
     int                     fd;
     size_t                  size;
     unsigned char           *buf;
