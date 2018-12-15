@@ -22,6 +22,7 @@
 
 #include <sodium.h>
 
+#include <queue.h>
 #include <unilink.h>
 
 int     create_tcp_server(int *tcp_fd, const char *port) {
@@ -181,18 +182,18 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
 }
 
 int     server_loop(int udp_fd, int tcp_fd) {
-    static struct pollfd    fds[2050];
-    static unsigned char    buf[65535];
-    unsigned char           *buftmp;
-    int                     s, fdtmp;
-    size_t                  nfds, i, k, fbq_size;
-    struct sockaddr_storage sa;
-    socklen_t               sa_len;
-    struct fd_buffer_que    *fb, *fbtmp;
-    struct fd_buffer_que    *fbque;
+    static struct pollfd            fds[2050];
+    static unsigned char            buf[65535];
+    unsigned char                   *buftmp;
+    int                             s, fdtmp;
+    size_t                          nfds, i, k;
+    struct sockaddr_storage         sa;
+    socklen_t                       sa_len;
+    struct fd_buffer                *fb;
+    LIST_HEAD(fb_head, fd_buffer)   fb_que
+                    = LIST_HEAD_INITIALIZER(fb_que);
 
-    fbque = NULL;
-    fbq_size = 0;
+    LIST_INIT(&fb_que);
     nfds = 0;
     fds[0].fd = udp_fd;
     fds[0].events = POLLIN;
@@ -238,12 +239,9 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         } else if (s == 0) {
                             goto discard_fd;
                         }
-                       
-                        fb = fbque;
-                        fbtmp = NULL;
-                        while (fb) { // seek for existing buffer
-                            if (fb->fd == fds[i].fd) {
 
+                        LIST_FOREACH(fb, &fb_que, e) {
+                            if (fb->fd == fds[i].fd) {
                                 // don't allow buffer to grow past
                                 // 128KB for a single incomplete
                                 // command
@@ -269,11 +267,10 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                 }
                                 break;
                             }
-                            fb = fb->forw;
                         }
-                        //no active buffer found
 
-                        if (is_complete_command(buf, s) > 0) {
+                        //no active buffer found
+                       if (is_complete_command(buf, s) > 0) {
                             //call handler
                             break;
                         }
@@ -297,20 +294,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                         memcpy(fb->buf, buf, s);
 
-                        if (fbque == NULL) { // list is empty
-                            insque(fb, NULL);
-                            fbque = fb;
-                        } else {
-                            fbtmp = fbque;
-                            while (fbtmp) {
-                                // find last elem to set as back
-                                if (fbtmp->forw == NULL) {
-                                    insque(fb, fbtmp);
-                                }
-                                fbtmp = fbtmp->forw;
-                            }
-                        }
-                        ++fbq_size;
+                        LIST_INSERT_HEAD(&fb_que, fb, e);
 
                         break;
 discard_fd:
@@ -323,22 +307,12 @@ discard_fd:
                         }
 
 flush_buffer:
-                        fb = fbque;
-                        fbtmp = NULL;
-                        while (fb) {
+                        LIST_FOREACH(fb, &fb_que, e) {
                             if (fb->fd == fdtmp) {
+                                LIST_REMOVE(fb, e);
                                 free(fb->buf);
-                                remque(fb);
-                                fbtmp = fb;
-                                --fbq_size;
-                                if (fbq_size == 0) {
-                                    fbque = NULL;
-                                }
-                            }
-                            fb = fb->forw;
-                            if (fbtmp != NULL) {
-                                free(fbtmp);
-                                fbtmp = NULL;
+                                free(fb);
+                                break;
                             }
                         }
                     }

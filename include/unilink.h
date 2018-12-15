@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <sys/socket.h>
 
+#include <queue.h>
+
 #define UNILINK_NETWORK_MAGIC "unilink"
 #define UNILINK_PEERINFO "unilink_peerinfo"
 #define UNILINK_PEERLIST "unilink_peerlist"
@@ -84,12 +86,11 @@ struct cmd_handler_que {
     cmd_handler *f;
 };
 
-struct fd_buffer_que {
-    void            *forw;
-    void            *back;
-    int             fd;
-    size_t          size;
-    unsigned char   *buf;
+struct fd_buffer {
+    LIST_ENTRY(fd_buffer)   e;
+    int                     fd;
+    size_t                  size;
+    unsigned char           *buf;
 };
 
 #endif
