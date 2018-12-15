@@ -175,6 +175,19 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
     return -1;
 }
 
+time_t  elapsed_seconds() {
+    int             s;
+    struct timespec ts;
+
+    s = clock_gettime(CLOCK_MONOTONIC, &ts);
+    if (s == -1) {
+        fprintf(stderr, "elapsed_seconds(); clock_gettime failed"
+                "\n");
+        return 0;
+    }
+    return ts.tv_sec;
+}
+
 int     server_loop(int udp_fd, int tcp_fd) {
     static struct pollfd            fds[2050];
     static unsigned char            buf[65535];
@@ -196,7 +209,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
     fds[1].fd = tcp_fd;
     fds[1].events = POLLIN;
     ++nfds;
-    run_check = time(NULL);
+    run_check = elapsed_seconds();
     for (;;) {
         s = poll(fds, nfds, 1000);
         if (s > 0) {
@@ -263,7 +276,11 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                         buf, s);
                                 fb->buf = buftmp;
                                 fb->size += s;
-                                fb->last_active = time(NULL);
+                                fb->last_active = elapsed_seconds();
+
+                                printf("grow fd_buffer (%d) of %u"
+                                    ", size is now %lu\n",
+                                    fb->fd, s, fb->size);
 
                                 if (is_complete_command(fb->buf,
                                             fb->size) > 0) {
@@ -289,7 +306,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                         fb->fd = fds[i].fd;
                         fb->size = s;
-                        fb->last_active = time(NULL);
+                        fb->last_active = elapsed_seconds();
 
                         fb->buf = malloc(s);
                         if (fb->buf == NULL) {
@@ -302,11 +319,16 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         memcpy(fb->buf, buf, s);
 
                         LIST_INSERT_HEAD(&fb_que, fb, e);
+                        printf("new fd_buffer (%d) with size %lu\n",
+                            fb->fd, fb->size);
                     }
                 }
 next_fd:
                 continue; // don't go there
 discard_fd:
+                printf("discarding fd (%d)\n", fds[i].fd);
+
+                shutdown(fds[i].fd, SHUT_RDWR);
                 close(fds[i].fd);
 
                 --nfds;
@@ -316,7 +338,9 @@ discard_fd:
 
 flush_buffer:
                 LIST_FOREACH(fb, &fb_que, e) {
-                    if (fb->fd == fdtmp) {
+                    if (fb->fd == fdtmp) { 
+                        printf("flushing fd_buffer (%d)"
+                            " of size %lu\n", fb->fd, fb->size);
                         LIST_REMOVE(fb, e);
                         free(fb->buf);
                         free(fb);
@@ -329,16 +353,19 @@ flush_buffer:
             // timed out.
         }
 
-        if (run_check > (time(NULL) - 30)) {
+        if (run_check > (elapsed_seconds() - 30)) {
             continue;
         }
-        run_check = time(NULL);
+        run_check = elapsed_seconds();
 
 re_iterate:
         LIST_FOREACH(fb, &fb_que, e) {
-            if (fb->last_active < (time(NULL) - 30)) {
+            if (fb->last_active < (elapsed_seconds() - 30)) {
                 LIST_REMOVE(fb, e);
 
+                printf("discarding fd (%d)\n", fb->fd);
+
+                shutdown(fb->fd, SHUT_RDWR);
                 close(fb->fd);
 
                 for (i = 0; i < nfds; ++i) {
@@ -350,7 +377,8 @@ re_iterate:
                         break;
                     }
                 }
-
+                printf("flushing fd_buffer (%d)"
+                            " of size %lu\n", fb->fd, fb->size);
                 free(fb->buf);
                 free(fb);
                 goto re_iterate;

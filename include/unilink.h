@@ -79,14 +79,17 @@ struct cmdinfo {
  *  }
  */
 
-typedef int cmd_handler(struct cmdinfo *); 
+typedef int cmd_handler(struct cmdinfo *, void **); 
 
-struct cmd_handler_que {
-    void        *forw;
-    void        *back;
+struct cmd_handler {
+    LIST_ENTRY(cmd_handler) e;
+    void        *handler_data
     cmd_handler *f;
 };
-
+/*
+static LIST_HEAD(cmd_handlers, cmd_handler) handler_que =
+            LIST_HEAD_INITIALIZER(handler_que); 
+*/
 struct fd_buffer {
     LIST_ENTRY(fd_buffer)   e;
     time_t                  last_active;
