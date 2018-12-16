@@ -12,52 +12,53 @@
 #define UNILINK_PEERLIST "unilink_peerlist"
 
 #define UNILINK_MASTER_ALG_PK "x25519"
-#define UNILINK_MASTER_PK "MCowBQYDK2VuAyEAgfQh7ke0sf6or3nod0DJGPTyV6LPD7z1YSa0MzwCdH4="
+#define UNILINK_MASTER_PK                                                      \
+  "MCowBQYDK2VuAyEAgfQh7ke0sf6or3nod0DJGPTyV6LPD7z1YSa0MzwCdH4="
 
 struct peerinfo {
-    char            *port;
-    char            *alg_pk;
-    size_t          pk_size;
-    unsigned char   *pk;
-    size_t          sk_size;
-    unsigned char   *sk;
-    char            *master_alg_pk;
-    size_t          master_pk_size;
-    unsigned char   *master_pk;
-    uint32_t        master_sequence_num;
+  char *port;
+  char *alg_pk;
+  size_t pk_size;
+  unsigned char *pk;
+  size_t sk_size;
+  unsigned char *sk;
+  char *master_alg_pk;
+  size_t master_pk_size;
+  unsigned char *master_pk;
+  uint32_t master_sequence_num;
 };
 
-int     read_peerinfo(struct peerinfo *pi);
-int     write_peerinfo(struct peerinfo *pi);
-int     init_peerinfo(struct peerinfo *pi);
-void    free_peerinfo(struct peerinfo *pi);
-int     create_udp_server(int *udp_fd, const char *port);
-int     create_tcp_server(int *tcp_fd, const char *port);
-int     server_loop(int udp_fd, int tcp_fd);
+int read_peerinfo(struct peerinfo *pi);
+int write_peerinfo(struct peerinfo *pi);
+int init_peerinfo(struct peerinfo *pi);
+void free_peerinfo(struct peerinfo *pi);
+int create_udp_server(int *udp_fd, const char *port);
+int create_tcp_server(int *tcp_fd, const char *port);
+int server_loop(int udp_fd, int tcp_fd);
 ssize_t is_complete_command(unsigned char *buf, size_t size,
-                unsigned char **start_of_end);
-time_t  elapsed_seconds();
+                            unsigned char **start_of_end);
+time_t elapsed_seconds();
 
 typedef enum e_cmdtype {
-    CMD_PING = 0,
-    CMD_ANNOUNCE = 1,
-    CMD_ELECT = 2,
+  CMD_PING = 0,
+  CMD_ANNOUNCE = 1,
+  CMD_ELECT = 2,
 } cmdtype;
 
 struct cmdinfo {
-    struct sockaddr_storage sa;
-    socklen_t               sa_len;
-    int                     is_tcp;
-    int                     fd;
-    uint32_t                type;
-    int                     is_reply;
-    char                    **lines;
-    size_t                  end_size;
-    unsigned char           *end;
+  struct sockaddr_storage sa;
+  socklen_t sa_len;
+  int is_tcp;
+  int fd;
+  uint32_t type;
+  int is_reply;
+  char **lines;
+  size_t end_size;
+  unsigned char *end;
 };
 
 /*  Example CMD_PING raw command data
- *  
+ *
  *  unilink
  *  0
  *  0
@@ -83,24 +84,24 @@ struct cmdinfo {
  *  }
  */
 
-int     parse_cmdinfo(unsigned char *buf, size_t size,
-                unsigned char *start_of_end, struct cmdinfo *ci); 
+int parse_cmdinfo(unsigned char *buf, size_t size, unsigned char *start_of_end,
+                  struct cmdinfo *ci);
 
-typedef int cmd_handler(struct cmdinfo *, void **); 
+typedef int cmd_handler(struct cmdinfo *, void **);
 
 struct cmd_handler {
-    LIST_ENTRY(cmd_handler) e;
-    uint32_t    type;
-    void        *handler_data;
-    cmd_handler *f;
+  LIST_ENTRY(cmd_handler) e;
+  uint32_t type;
+  void *handler_data;
+  cmd_handler *f;
 };
 
 struct fd_buffer {
-    LIST_ENTRY(fd_buffer)   e;
-    time_t                  last_active;
-    int                     fd;
-    size_t                  size;
-    unsigned char           *buf;
+  LIST_ENTRY(fd_buffer) e;
+  time_t last_active;
+  int fd;
+  size_t size;
+  unsigned char *buf;
 };
 
 #endif
