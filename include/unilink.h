@@ -34,7 +34,9 @@ void    free_peerinfo(struct peerinfo *pi);
 int     create_udp_server(int *udp_fd, const char *port);
 int     create_tcp_server(int *tcp_fd, const char *port);
 int     server_loop(int udp_fd, int tcp_fd);
-ssize_t is_complete_command(unsigned char *buf, size_t size);
+ssize_t is_complete_command(unsigned char *buf, size_t size,
+                unsigned char **start_of_end);
+time_t  elapsed_seconds();
 
 typedef enum e_cmdtype {
     CMD_PING = 0,
@@ -45,6 +47,8 @@ typedef enum e_cmdtype {
 struct cmdinfo {
     struct sockaddr_storage sa;
     socklen_t               sa_len;
+    int                     is_tcp;
+    int                     fd;
     uint32_t                type;
     int                     is_reply;
     char                    **lines;
@@ -79,17 +83,18 @@ struct cmdinfo {
  *  }
  */
 
+int     parse_cmdinfo(unsigned char *buf, size_t size,
+                unsigned char *start_of_end, struct cmdinfo *ci); 
+
 typedef int cmd_handler(struct cmdinfo *, void **); 
 
 struct cmd_handler {
     LIST_ENTRY(cmd_handler) e;
-    void        *handler_data
+    uint32_t    type;
+    void        *handler_data;
     cmd_handler *f;
 };
-/*
-static LIST_HEAD(cmd_handlers, cmd_handler) handler_que =
-            LIST_HEAD_INITIALIZER(handler_que); 
-*/
+
 struct fd_buffer {
     LIST_ENTRY(fd_buffer)   e;
     time_t                  last_active;

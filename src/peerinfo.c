@@ -28,7 +28,7 @@ int     read_peerinfo(struct peerinfo *pi) {
     }
 
     ret = 0;
-    for (line = NULL, nline = 0;
+    for (line = NULL, n = 0, nline = 0;
                 ret >= 0 && (s = getline(&line, &n, fp)) != -1; ++nline) {
         if (s == 0) {
             fprintf(stderr, "read_peerinfo(); empty line\n");

@@ -27,6 +27,8 @@
 #include <queue.h>
 #include <unilink.h>
 
+extern LIST_HEAD(cmd_handlers, cmd_handler) handler_que;
+
 int     create_tcp_server(int *tcp_fd, const char *port) {
     int             s, tcp_sock;
     struct addrinfo hints;
@@ -135,7 +137,8 @@ int     create_udp_server(int *udp_fd, const char *port) {
     return 0;
 }
 
-ssize_t is_complete_command(unsigned char *buf, size_t size) {
+ssize_t is_complete_command(unsigned char *buf, size_t size,
+                unsigned char **start_of_end) {
     int             n_line, x;
     long int        end_size;
     size_t          line_len;
@@ -145,6 +148,12 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
             p < buf + size;
             ++p) {
         if (*p == '\n') {
+            if (n_line == 0
+                && strncmp((const char *)buf, UNILINK_NETWORK_MAGIC,
+                    p - buf - 1) != 0) {
+                fprintf(stderr, "UNILINK_NETWORK_MAGIC invalid\n");
+                return -1;
+            }
             ++n_line;
             if (line_len == 0 && n_line >= 5) {
                 j = p + 1;
@@ -159,6 +168,7 @@ ssize_t is_complete_command(unsigned char *buf, size_t size) {
                                 NULL, 10);
                         if (end_size >= 0 &&
                                 end_size <= (buf + size - j)) {
+                            *start_of_end = j;
                             return j - buf + end_size;
                         } else {
                             return -1;
@@ -188,15 +198,68 @@ time_t  elapsed_seconds() {
     return ts.tv_sec;
 }
 
+int     parse_cmdinfo(unsigned char *buf, size_t size,
+                unsigned char *start_of_end, struct cmdinfo *ci) {
+    FILE            *f;
+    size_t          n_lines, i, n;
+    ssize_t         s;
+    unsigned char   *p;
+    char            **lines;
+
+    if (ci == NULL) {
+        fprintf(stderr, "parse_cmdinfo(); ci == NULL\n");
+        return -1;
+    }
+
+    for (n_lines = 0, p = buf; p != NULL
+                && p < start_of_end; ++n_lines, ++p) {
+        p = memchr(p, '\n', size - (p - buf));
+    }
+
+    lines = calloc(n_lines + 1, sizeof *lines);
+    if (lines == NULL) {
+        fprintf(stderr, "parse_cmdinfo(); calloc failed\n");
+        return -2;
+    }
+
+    f = fmemopen(buf, size, "r");
+    if (f == NULL) {
+        fprintf(stderr, "parse_cmdinfo(); fmemopen failed\n");
+        return -3;
+    }
+
+    for (n = 0, i = 0; i < n_lines
+            && (s = getline(&lines[i], &n, f)) != -1; ++i, n = 0);
+    if (i != n_lines) {
+        fprintf(stderr, "parse_cmdinfo(); invalid cmdinfo\n");
+        return -4;
+    }
+
+    ci->lines = lines;
+    
+    if (sscanf(lines[1], "%"SCNu32, &ci->type) != 1) {
+        fprintf(stderr, "parse_cmdinfo(); sscanf failed\n");
+        return -5;
+    }
+
+    ci->is_reply = atoi(lines[2]) ? 1 : 0;
+    ci->end_size = size - (start_of_end - buf);
+    ci->end = start_of_end;
+    return 0;
+}
+
 int     server_loop(int udp_fd, int tcp_fd) {
     static struct pollfd            fds[2050];
     static unsigned char            buf[65535];
-    unsigned char                   *buftmp;
-    int                             s, fdtmp;
+    unsigned char                   *buftmp, *start_of_end;
+    int                             s, fdtmp, found_handler;
     time_t                          run_check;
     size_t                          nfds, i, k;
+    ssize_t                         msg_size;
     struct sockaddr_storage         sa;
     socklen_t                       sa_len;
+    struct cmdinfo                  ci;
+    struct cmd_handler              *ch;
     struct fd_buffer                *fb;
     LIST_HEAD(fb_head, fd_buffer)   fb_que
         = LIST_HEAD_INITIALIZER(fb_que);
@@ -279,12 +342,49 @@ int     server_loop(int udp_fd, int tcp_fd) {
                                 fb->last_active = elapsed_seconds();
 
                                 printf("grow fd_buffer (%d) of %u"
-                                    ", size is now %lu\n",
-                                    fb->fd, s, fb->size);
+                                        ", size is now %lu\n",
+                                        fb->fd, s, fb->size);
 
-                                if (is_complete_command(fb->buf,
-                                            fb->size) > 0) {
+                                if ((msg_size = 
+                                        is_complete_command(fb->buf,
+                                            fb->size,
+                                            &start_of_end)) > 0) {
                                     //call handler
+                                    if (parse_cmdinfo(fb->buf,
+                                        msg_size,
+                                        start_of_end, &ci) >= 0) {
+                                        memcpy(&ci.sa, &sa, sa_len);
+                                        ci.sa_len = sa_len;
+                                        ci.fd = fds[i].fd;
+                                        ci.is_tcp = 1;
+
+                                        found_handler = 0;
+                                        LIST_FOREACH(ch,
+                                                &handler_que, e) {
+                                            if (ch->type
+                                                == ci.type) {
+                                                found_handler = 1;
+                                                printf(
+                                                    "handler for "
+                                                    "command of "
+                                                    "type %"
+                                                    SCNu32" "
+                                                    "returned %d\n",
+                                                    ci.type,
+                                                    (ch->f)(&ci,
+                                                        &ch->
+                                                    handler_data));
+                                                break;
+                                            }
+                                        }
+                                        if (found_handler == 0) {
+                                        printf("unhandled "
+                                            "command of type %"
+                                            SCNu32"\n",
+                                            ci.type);
+                                        }
+                                    }
+
                                     goto flush_buffer;
                                 }
                                 goto next_fd;
@@ -292,8 +392,37 @@ int     server_loop(int udp_fd, int tcp_fd) {
                         }
                         //no active buffer found
 
-                        if (is_complete_command(buf, s) > 0) {
-                            //call handler
+                        if ((msg_size = is_complete_command(buf, s,
+                                    &start_of_end)) > 0) {
+                            //call handler                           
+                            if (parse_cmdinfo(fb->buf, msg_size,
+                                    start_of_end, &ci) >= 0) {
+                                memcpy(&ci.sa, &sa, sa_len);
+                                ci.sa_len = sa_len;
+                                ci.fd = fds[i].fd;
+                                ci.is_tcp = 1;
+
+                                found_handler = 0;
+                                LIST_FOREACH(ch, &handler_que, e) {
+                                    if (ch->type == ci.type) {
+                                        found_handler = 1;
+                                        printf("handler for "
+                                            "command of type %"
+                                            SCNu32" "
+                                            "returned %d\n",
+                                            ci.type,
+                                            (ch->f)(&ci,
+                                                &ch->handler_data));
+                                        break;
+                                    }
+                                }
+                                if (found_handler == 0) {
+                                    printf("unhandled "
+                                            "command of type %"
+                                            SCNu32"\n",
+                                            ci.type);
+                                }
+                            }
                             break;
                         }
 
@@ -320,7 +449,7 @@ int     server_loop(int udp_fd, int tcp_fd) {
 
                         LIST_INSERT_HEAD(&fb_que, fb, e);
                         printf("new fd_buffer (%d) with size %lu\n",
-                            fb->fd, fb->size);
+                                fb->fd, fb->size);
                     }
                 }
 next_fd:
@@ -340,7 +469,7 @@ flush_buffer:
                 LIST_FOREACH(fb, &fb_que, e) {
                     if (fb->fd == fdtmp) { 
                         printf("flushing fd_buffer (%d)"
-                            " of size %lu\n", fb->fd, fb->size);
+                                " of size %lu\n", fb->fd, fb->size);
                         LIST_REMOVE(fb, e);
                         free(fb->buf);
                         free(fb);
@@ -378,12 +507,11 @@ re_iterate:
                     }
                 }
                 printf("flushing fd_buffer (%d)"
-                            " of size %lu\n", fb->fd, fb->size);
+                        " of size %lu\n", fb->fd, fb->size);
                 free(fb->buf);
                 free(fb);
                 goto re_iterate;
             }
         }
-
     }
 }

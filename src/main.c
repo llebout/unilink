@@ -35,12 +35,49 @@ static char *test2_command =
 "\n\n\n\n\n\n\n\n1\n\n\n\n"
 ; */
 
+LIST_HEAD(cmd_handlers, cmd_handler) handler_que =
+            LIST_HEAD_INITIALIZER(handler_que);
+
+int     ping_handler(struct cmdinfo *ci, void **handler_data) {
+    int                 s;
+    static const char   *ping_reply = 
+        "unilink\n"
+        "0\n"
+        "0\n"
+        "Greetings!\n"
+        "I am a member of the unilink network.\n"
+        "0\n"
+        "\n";
+
+    (void)handler_data;
+    if (ci->is_reply) {
+
+    } else {
+        if (ci->is_tcp) {
+            s = send(ci->fd, ping_reply, strlen(ping_reply), 0);
+            if (s == -1) {
+                fprintf(stderr, "ping_handler(); send failed\n");
+                return -1;
+            }
+        } else {
+            s = sendto(ci->fd, ping_reply, strlen(ping_reply), 0,
+                (struct sockaddr *) &ci->sa, ci->sa_len);
+            if (s == -1) {
+                fprintf(stderr, "ping_handler(); sendto failed\n");
+                return -2;
+            }
+        }
+    }
+    return 0;
+}
+
 int     main(void) {
     struct peerinfo         pi;
     int                     s, udp_fd, tcp_fd;
     struct sockaddr_storage addr;
     socklen_t               addrlen;
     char                    port[NI_MAXSERV];
+    struct cmd_handler      *handler;
 
     if (sodium_init() < 0) {
         fprintf(stderr, "main(); sodium_init failed\n");
@@ -119,6 +156,19 @@ int     main(void) {
     }
 
     printf("main(); bound port %s\n", pi.port);
+
+    LIST_INIT(&handler_que);
+
+    handler = calloc(1, sizeof *handler);
+    if (handler == NULL) {
+        fprintf(stderr, "main(); calloc failed\n");
+        return EXIT_FAILURE;
+    }
+
+    handler->type = CMD_PING;
+    handler->f = &ping_handler;
+
+    LIST_INSERT_HEAD(&handler_que, handler, e);
 
     server_loop(udp_fd, tcp_fd);
 
