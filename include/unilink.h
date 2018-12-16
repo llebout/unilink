@@ -86,6 +86,7 @@ struct cmdinfo {
 
 int parse_cmdinfo(unsigned char *buf, size_t size, unsigned char *start_of_end,
                   struct cmdinfo *ci);
+void free_cmdinfo(struct cmdinfo *ci);
 
 typedef int cmd_handler(struct cmdinfo *, void **);
 

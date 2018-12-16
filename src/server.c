@@ -209,6 +209,7 @@ int parse_cmdinfo(unsigned char *buf, size_t size, unsigned char *start_of_end,
 
   f = fmemopen(buf, size, "r");
   if (f == NULL) {
+    free(lines);
     fprintf(stderr, "parse_cmdinfo(); fmemopen failed\n");
     return -3;
   }
@@ -216,14 +217,19 @@ int parse_cmdinfo(unsigned char *buf, size_t size, unsigned char *start_of_end,
   for (n = 0, i = 0; i < n_lines && (s = getline(&lines[i], &n, f)) != -1;
        ++i, n = 0)
     ;
+
+  fclose(f);
+
   if (i != n_lines) {
     fprintf(stderr, "parse_cmdinfo(); invalid cmdinfo\n");
+    free_cmdinfo(ci);
     return -4;
   }
 
   ci->lines = lines;
 
   if (sscanf(lines[1], "%" SCNu32, &ci->type) != 1) {
+    free_cmdinfo(ci);
     fprintf(stderr, "parse_cmdinfo(); sscanf failed\n");
     return -5;
   }
@@ -232,6 +238,17 @@ int parse_cmdinfo(unsigned char *buf, size_t size, unsigned char *start_of_end,
   ci->end_size = size - (start_of_end - buf);
   ci->end = start_of_end;
   return 0;
+}
+
+void free_cmdinfo(struct cmdinfo *ci) {
+  size_t i;
+
+  if (ci && ci->lines) {
+    for (i = 0; ci->lines[i]; ++i) {
+      free(ci->lines[i]);
+    }
+    free(ci->lines);
+  }
 }
 
 int server_loop(int udp_fd, int tcp_fd) {
@@ -332,6 +349,7 @@ int server_loop(int udp_fd, int tcp_fd) {
                 if ((msg_size = is_complete_command(fb->buf, fb->size,
                                                     &start_of_end)) > 0) {
                   // call handler
+                  memset(&ci, 0, sizeof ci);
                   if (parse_cmdinfo(fb->buf, msg_size, start_of_end, &ci) >=
                       0) {
                     memcpy(&ci.sa, &sa, sa_len);
@@ -356,6 +374,7 @@ int server_loop(int udp_fd, int tcp_fd) {
                              "command of type %" SCNu32 "\n",
                              ci.type);
                     }
+                    free_cmdinfo(&ci);
                   }
 
                   goto flush_buffer;
@@ -367,7 +386,8 @@ int server_loop(int udp_fd, int tcp_fd) {
 
             if ((msg_size = is_complete_command(buf, s, &start_of_end)) > 0) {
               // call handler
-              if (parse_cmdinfo(fb->buf, msg_size, start_of_end, &ci) >= 0) {
+              memset(&ci, 0, sizeof ci);
+              if (parse_cmdinfo(buf, msg_size, start_of_end, &ci) >= 0) {
                 memcpy(&ci.sa, &sa, sa_len);
                 ci.sa_len = sa_len;
                 ci.fd = fds[i].fd;
@@ -389,6 +409,7 @@ int server_loop(int udp_fd, int tcp_fd) {
                          "command of type %" SCNu32 "\n",
                          ci.type);
                 }
+                free_cmdinfo(&ci);
               }
               break;
             }

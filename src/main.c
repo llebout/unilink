@@ -42,7 +42,7 @@ int ping_handler(struct cmdinfo *ci, void **handler_data) {
   int s;
   static const char *ping_reply = "unilink\n"
                                   "0\n"
-                                  "0\n"
+                                  "1\n"
                                   "Greetings!\n"
                                   "I am a member of the unilink network.\n"
                                   "0\n"
