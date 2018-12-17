@@ -11,6 +11,3 @@ This is currently very much of a work in progress, but once more functional, I c
 ## Network Map
 
 ![Network Architecture](Network.jpg?raw=true)
-
-## Usage notice
-I disallow any actor, such as but not limited to, individuals, businesses or states, to use this code to take control of computers remotely without their owner's and individual users handwritten consent. This is meant as a demonstration, not APT malware. So please don't treat it as such.
