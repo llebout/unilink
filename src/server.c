@@ -28,6 +28,61 @@
 #include <unilink.h>
 
 extern LIST_HEAD(cmd_handlers, cmd_handler) handler_que;
+extern LIST_HEAD(cp_head, conn_pending) cp_que;
+extern LIST_HEAD(npi_head, netpeerinfo) npi_que;
+
+int create_tcp_client(char *address, char *port) {
+  int s, tcp_sock;
+  struct addrinfo hints;
+  struct addrinfo *res, *rp;
+
+  if (tcp_fd == NULL) {
+    fprintf(stderr, "create_tcp_server(); tcp_fd == NULL\n");
+    return -1;
+  }
+
+  memset(&hints, 0, sizeof(hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = 0;
+  hints.ai_protocol = 0;
+
+  s = getaddrinfo(NULL, port, &hints, &res);
+  if (s != 0) {
+    fprintf(stderr, "create_tcp_server(); getaddrinfo failed\n");
+    return -1;
+  }
+
+  for (rp = res; rp != NULL; rp = rp->ai_next) {
+    tcp_sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+    if (tcp_sock < 0)
+      continue;
+
+    s = bind(tcp_sock, rp->ai_addr, rp->ai_addrlen);
+    if (s == 0)
+      break;
+
+    close(tcp_sock);
+  }
+
+  if (rp == NULL) {
+    freeaddrinfo(res);
+    fprintf(stderr, "create_tcp_server(); bind failed\n");
+    return -2;
+  }
+
+  s = listen(tcp_sock, 1024);
+  if (s == -1) {
+    close(tcp_sock);
+    freeaddrinfo(res);
+    fprintf(stderr, "create_tcp_server(); listen failed\n");
+    return -3;
+  }
+
+  *tcp_fd = tcp_sock;
+  freeaddrinfo(res);
+  return 0;
+}
 
 int create_tcp_server(int *tcp_fd, const char *port) {
   int s, tcp_sock;
@@ -251,12 +306,37 @@ void free_cmdinfo(struct cmdinfo *ci) {
   }
 }
 
+int async_connect(int sockfd, struct sockaddr *sa, socklen_t sa_len) {
+  int s;
+
+  s = fcntl(sockfd, F_GETFL, 0);
+  if (s == -1) {
+    fprintf(stderr, "async_connect(); fcntl failed\n");
+    return -1;
+  }
+  s = fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+  if (s == -1) {
+    fprintf(stderr, "async_connect(); fcntl failed\n");
+    return -2;
+  }
+
+  errno = 0;
+  s = connect(sockfd, sa, sa_len);
+  if (s == -1) {
+    if (errno == EINPROGRESS) {
+      return 0;
+    }
+  }
+  fprintf(stderr, "async_connect(); connect failed\n");
+  return -3;
+}
+
 int server_loop(int udp_fd, int tcp_fd) {
   static struct pollfd fds[2050];
   static unsigned char buf[65535];
   unsigned char *buftmp, *start_of_end;
   int s, fdtmp, found_handler;
-  time_t run_check;
+  time_t run_check, periodic;
   size_t nfds, i, k;
   ssize_t msg_size;
   struct sockaddr_storage sa;
@@ -264,6 +344,8 @@ int server_loop(int udp_fd, int tcp_fd) {
   struct cmdinfo ci;
   struct cmd_handler *ch;
   struct fd_buffer *fb;
+  struct conn_pending *cp;
+  struct netpeerinfo *npi;
   LIST_HEAD(fb_head, fd_buffer) fb_que = LIST_HEAD_INITIALIZER(fb_que);
 
   LIST_INIT(&fb_que);
@@ -275,6 +357,7 @@ int server_loop(int udp_fd, int tcp_fd) {
   fds[1].events = POLLIN;
   ++nfds;
   run_check = elapsed_seconds();
+  periodic = elapsed_seconds();
   for (;;) {
     s = poll(fds, nfds, 1000);
     if (s > 0) {
@@ -470,37 +553,40 @@ int server_loop(int udp_fd, int tcp_fd) {
       // timed out.
     }
 
-    if (run_check > (elapsed_seconds() - 30)) {
-      continue;
-    }
-    run_check = elapsed_seconds();
+    if (run_check < (elapsed_seconds() - 30)) {
+      run_check = elapsed_seconds();
 
-  re_iterate:
-    LIST_FOREACH(fb, &fb_que, e) {
-      if (fb->last_active < (elapsed_seconds() - 30)) {
-        LIST_REMOVE(fb, e);
+    re_iterate:
+      LIST_FOREACH(fb, &fb_que, e) {
+        if (fb->last_active < (elapsed_seconds() - 30)) {
+          LIST_REMOVE(fb, e);
 
-        printf("discarding fd (%d)\n", fb->fd);
+          printf("discarding fd (%d)\n", fb->fd);
 
-        shutdown(fb->fd, SHUT_RDWR);
-        close(fb->fd);
+          shutdown(fb->fd, SHUT_RDWR);
+          close(fb->fd);
 
-        for (i = 0; i < nfds; ++i) {
-          if (fds[i].fd == fb->fd) {
-            --nfds;
-            for (k = i; k < nfds; ++k) {
-              fds[k].fd = fds[k + 1].fd;
+          for (i = 0; i < nfds; ++i) {
+            if (fds[i].fd == fb->fd) {
+              --nfds;
+              for (k = i; k < nfds; ++k) {
+                fds[k].fd = fds[k + 1].fd;
+              }
+              break;
             }
-            break;
           }
+          printf("flushing fd_buffer (%d)"
+                 " of size %lu\n",
+                 fb->fd, fb->size);
+          free(fb->buf);
+          free(fb);
+          goto re_iterate;
         }
-        printf("flushing fd_buffer (%d)"
-               " of size %lu\n",
-               fb->fd, fb->size);
-        free(fb->buf);
-        free(fb);
-        goto re_iterate;
       }
+    } else if (periodic < (elapsed_seconds() - 5)) {
+      periodic = elapsed_seconds();
+
+      LIST_FOREACH(npi, &npi_que, e) {}
     }
   }
 }

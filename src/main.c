@@ -38,6 +38,12 @@ static char *test2_command =
 LIST_HEAD(cmd_handlers, cmd_handler)
 handler_que = LIST_HEAD_INITIALIZER(handler_que);
 
+LIST_HEAD(cp_head, conn_pending)
+cp_que = LIST_HEAD_INITIALIZER(cp_que);
+
+LIST_HEAD(npi_head, netpeerinfo)
+npi_que = LIST_HEAD_INITIALIZER(npi_que);
+
 int ping_handler(struct cmdinfo *ci, void **handler_data) {
   int s;
   static const char *ping_reply = "unilink\n"
@@ -168,6 +174,9 @@ int main(void) {
   handler->f = &ping_handler;
 
   LIST_INSERT_HEAD(&handler_que, handler, e);
+
+  LIST_INIT(&cp_que);
+  LIST_INIT(&npi_que);
 
   server_loop(udp_fd, tcp_fd);
 
