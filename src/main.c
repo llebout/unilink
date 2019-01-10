@@ -64,6 +64,7 @@ int ping_handler(struct cmdinfo *ci, void **handler_data) {
         fprintf(stderr, "ping_handler(); send failed\n");
         return -1;
       }
+      return 1;
     } else {
       s = sendto(ci->fd, ping_reply, strlen(ping_reply), 0,
                  (struct sockaddr *)&ci->sa, ci->sa_len);
@@ -83,6 +84,7 @@ int main(void) {
   socklen_t addrlen;
   char port[NI_MAXSERV];
   struct cmd_handler *handler;
+  struct netpeerinfo *npi;
 
   if (sodium_init() < 0) {
     fprintf(stderr, "main(); sodium_init failed\n");
@@ -177,6 +179,16 @@ int main(void) {
 
   LIST_INIT(&cp_que);
   LIST_INIT(&npi_que);
+
+  npi = calloc(1, sizeof *npi);
+  if (npi == NULL) {
+    fprintf(stderr, "main(); calloc failed\n");
+    return EXIT_FAILURE;
+  }
+
+  npi->address = "127.0.0.1";
+  npi->port = "43756";
+  LIST_INSERT_HEAD(&npi_que, npi, e);
 
   server_loop(udp_fd, tcp_fd);
 

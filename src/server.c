@@ -16,6 +16,8 @@
 #include <poll.h>
 #include <signal.h>
 
+#include <fcntl.h>
+
 #include <inttypes.h>
 
 #include <time.h>
@@ -30,7 +32,7 @@
 extern LIST_HEAD(cmd_handlers, cmd_handler) handler_que;
 extern LIST_HEAD(cp_head, conn_pending) cp_que;
 extern LIST_HEAD(npi_head, netpeerinfo) npi_que;
-
+/*
 int create_tcp_client(char *address, char *port) {
   int s, tcp_sock;
   struct addrinfo hints;
@@ -82,7 +84,7 @@ int create_tcp_client(char *address, char *port) {
   *tcp_fd = tcp_sock;
   freeaddrinfo(res);
   return 0;
-}
+} */
 
 int create_tcp_server(int *tcp_fd, const char *port) {
   int s, tcp_sock;
@@ -314,7 +316,7 @@ int async_connect(int sockfd, struct sockaddr *sa, socklen_t sa_len) {
     fprintf(stderr, "async_connect(); fcntl failed\n");
     return -1;
   }
-  s = fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+  s = fcntl(sockfd, F_SETFL, s | O_NONBLOCK);
   if (s == -1) {
     fprintf(stderr, "async_connect(); fcntl failed\n");
     return -2;
@@ -331,21 +333,53 @@ int async_connect(int sockfd, struct sockaddr *sa, socklen_t sa_len) {
   return -3;
 }
 
+int on_connect_ping(struct conn_pending *cp, void **p_cb_data) {
+  struct pending_data *pd;
+
+  if (cp == NULL) {
+    fprintf(stderr, "on_connect_ping(); cp == NULL\n");
+    return -1;
+  }
+  if (p_cb_data == NULL) {
+    fprintf(stderr, "on_connect_ping(); p_cb_data == NULL\n");
+    return -2;
+  }
+  if (cp->status != 0) {
+    fprintf(stderr,
+            "on_connect_ping(); connect failed on fd %d with status %d\n",
+            cp->fd, cp->status);
+    return -3;
+  }
+
+  pd = *(struct pending_data **)p_cb_data;
+  if (send(cp->fd, pd->buf, pd->size, 0) == -1) {
+    fprintf(stderr, "on_connect_ping(); send failed\n");
+    free(pd->buf);
+    return -4;
+  }
+  free(pd->buf);
+  return 1;
+}
+
 int server_loop(int udp_fd, int tcp_fd) {
   static struct pollfd fds[2050];
   static unsigned char buf[65535];
   unsigned char *buftmp, *start_of_end;
-  int s, fdtmp, found_handler;
+  int s, fdtmp, found_handler, so_error, sfd, res_cb;
   time_t run_check, periodic;
   size_t nfds, i, k;
   ssize_t msg_size;
   struct sockaddr_storage sa;
-  socklen_t sa_len;
+  socklen_t sa_len, tmpsize;
   struct cmdinfo ci;
   struct cmd_handler *ch;
   struct fd_buffer *fb;
   struct conn_pending *cp;
   struct netpeerinfo *npi;
+  struct addrinfo hints;
+  struct addrinfo *result, *rp;
+  struct pending_data *pd;
+
   LIST_HEAD(fb_head, fd_buffer) fb_que = LIST_HEAD_INITIALIZER(fb_que);
 
   LIST_INIT(&fb_que);
@@ -364,12 +398,27 @@ int server_loop(int udp_fd, int tcp_fd) {
       for (i = 0; i < nfds; ++i) {
         s = fdtmp = fds[i].fd;
 
-        if (fds[i].revents & POLLNVAL) {
-          goto discard_fd;
-        } else if (fds[i].revents & POLLERR) {
-          goto discard_fd;
-        } else if (fds[i].revents & POLLHUP) {
-          goto discard_fd;
+        if (fds[i].revents & POLLOUT) {
+          LIST_FOREACH(cp, &cp_que, e) {
+            if (cp->fd == s) {
+              tmpsize = sizeof(so_error);
+              if (getsockopt(cp->fd, SOL_SOCKET, SO_ERROR, &so_error,
+                             &tmpsize) == 0) {
+                cp->status = so_error;
+                res_cb = cp->f(cp, &cp->cb_data);
+                if (res_cb < 0) {
+                  LIST_REMOVE(cp, e);
+                  free(cp);
+                  goto discard_fd;
+                } else {
+                  LIST_REMOVE(cp, e);
+                  free(cp);
+                  fds[i].events = POLLIN;
+                }
+              }
+              break;
+            }
+          }
         } else if (fds[i].revents & POLLIN) {
           if (s == udp_fd) {
             // read and send to handler
@@ -444,11 +493,17 @@ int server_loop(int udp_fd, int tcp_fd) {
                     LIST_FOREACH(ch, &handler_que, e) {
                       if (ch->type == ci.type) {
                         found_handler = 1;
+                        res_cb = (ch->f)(&ci, &ch->handler_data);
                         printf("handler for "
                                "command of "
                                "type %" SCNu32 " "
                                "returned %d\n",
-                               ci.type, (ch->f)(&ci, &ch->handler_data));
+                               ci.type, res_cb);
+                        if (res_cb < 0) {
+                          goto discard_fd;
+                        } else if (res_cb == 1) {
+                          goto discard_fd;
+                        }
                         break;
                       }
                     }
@@ -480,10 +535,16 @@ int server_loop(int udp_fd, int tcp_fd) {
                 LIST_FOREACH(ch, &handler_que, e) {
                   if (ch->type == ci.type) {
                     found_handler = 1;
+                    res_cb = (ch->f)(&ci, &ch->handler_data);
                     printf("handler for "
                            "command of type %" SCNu32 " "
                            "returned %d\n",
-                           ci.type, (ch->f)(&ci, &ch->handler_data));
+                           ci.type, res_cb);
+                    if (res_cb < 0) {
+                      goto discard_fd;
+                    } else if (res_cb == 1) {
+                      goto discard_fd;
+                    }
                     break;
                   }
                 }
@@ -521,6 +582,12 @@ int server_loop(int udp_fd, int tcp_fd) {
             LIST_INSERT_HEAD(&fb_que, fb, e);
             printf("new fd_buffer (%d) with size %lu\n", fb->fd, fb->size);
           }
+        } else if (fds[i].revents & POLLNVAL) {
+          goto discard_fd;
+        } else if (fds[i].revents & POLLERR) {
+          goto discard_fd;
+        } else if (fds[i].revents & POLLHUP) {
+          goto discard_fd;
         }
       next_fd:
         continue; // don't go there
@@ -586,7 +653,70 @@ int server_loop(int udp_fd, int tcp_fd) {
     } else if (periodic < (elapsed_seconds() - 5)) {
       periodic = elapsed_seconds();
 
-      LIST_FOREACH(npi, &npi_que, e) {}
+      LIST_FOREACH(npi, &npi_que, e) {
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+
+        s = getaddrinfo(npi->address, npi->port, &hints, &result);
+        if (s != 0) {
+          fprintf(stderr, "server_loop(); getaddrinfo failed\n");
+          continue;
+        }
+        for (rp = result; rp != NULL; rp = rp->ai_next) {
+          sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+          if (sfd == -1)
+            continue;
+
+          if (async_connect(sfd, rp->ai_addr, rp->ai_addrlen) >= 0)
+            break; /* Success */
+
+          close(sfd);
+        }
+
+        if (rp == NULL) { /* No address succeeded */
+          fprintf(stderr, "server_loop(); async_connect failed\n");
+          freeaddrinfo(result);
+          continue;
+        }
+
+        freeaddrinfo(result); /* No longer needed */
+
+        cp = calloc(1, sizeof(*cp));
+        if (cp == NULL) {
+          fprintf(stderr, "server_loop(); calloc failed\n");
+          close(sfd);
+          continue;
+        }
+        cp->fd = sfd;
+
+        pd = calloc(1, sizeof(*pd));
+        if (pd == NULL) {
+          fprintf(stderr, "server_loop(); calloc failed\n");
+          free(cp);
+          close(sfd);
+          continue;
+        }
+
+        pd->buf = (unsigned char *)strdup(
+            "unilink\n0\n0\nGreetings!\nI am a member of the "
+            "unilink network.\n0\n\n");
+        if (pd->buf == NULL) {
+          fprintf(stderr, "server_loop(); strdup failed\n");
+          free(pd);
+          free(cp);
+          continue;
+        }
+        pd->size = strlen((char *)pd->buf);
+
+        cp->cb_data = pd;
+        cp->f = on_connect_ping;
+        LIST_INSERT_HEAD(&cp_que, cp, e);
+
+        fds[nfds].fd = sfd;
+        fds[nfds].events = POLLOUT;
+        ++nfds;
+      }
     }
   }
 }

@@ -105,14 +105,17 @@ struct fd_buffer {
   unsigned char *buf;
 };
 
+struct conn_pending;
+
 typedef int conn_cb(struct conn_pending *, void **);
 
 struct conn_pending {
   LIST_ENTRY(conn_pending) e;
   int fd;
   int status;
+  void *cb_data;
   conn_cb *f;
-}
+};
 
 struct netpeerinfo {
   LIST_ENTRY(netpeerinfo) e;
@@ -121,6 +124,11 @@ struct netpeerinfo {
   size_t pk_size;
   unsigned char *pk;
   int role;
-}
+};
+
+struct pending_data {
+  size_t size;
+  unsigned char *buf;
+};
 
 #endif
