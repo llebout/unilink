@@ -80,7 +80,7 @@ int ping_handler(struct cmdinfo *ci, void **handler_data) {
   return 0;
 }
 
-int address_type(struct sockaddr_storage *sa, socklen_t sa_len) {
+int address_type(struct sockaddr *sa, socklen_t sa_len) {
   struct sockaddr_in *sin;
   struct sockaddr_in6 *sin6;
   unsigned char *b;
@@ -89,15 +89,15 @@ int address_type(struct sockaddr_storage *sa, socklen_t sa_len) {
     fprintf(stderr, "address_type(); sa == NULL\n");
     return -1;
   }
-  if (sa->ss_family == AF_INET ||
-      (sa->ss_family == AF_INET6 &&
+  if (sa->sa_family == AF_INET ||
+      (sa->sa_family == AF_INET6 &&
        (IN6_IS_ADDR_V4MAPPED(&((struct sockaddr_in6 *)&sa)->sin6_addr) ||
         IN6_IS_ADDR_V4COMPAT(&((struct sockaddr_in6 *)&sa)->sin6_addr)))) {
     if (sa_len < sizeof *sin) {
       fprintf(stderr, "address_type(); sa_len < sizeof *sin\n");
       return -2;
     }
-    if (sa->ss_family == AF_INET) {
+    if (sa->sa_family == AF_INET) {
       sin = (struct sockaddr_in *)sa;
       b = (unsigned char *)&sin->sin_addr;
     } else {
@@ -123,7 +123,7 @@ int address_type(struct sockaddr_storage *sa, socklen_t sa_len) {
     } else {
       return 2; // Globally routable
     }
-  } else if (sa->ss_family == AF_INET6) {
+  } else if (sa->sa_family == AF_INET6) {
     if (sa_len < sizeof *sin6) {
       fprintf(stderr, "address_type(); sa_len < sizeof *sin6\n");
       return -4;
@@ -152,18 +152,21 @@ int announce_handler(struct cmdinfo *ci, void **handler_data) {
   char **tmp_line;
   static unsigned char tmp_pk[crypto_sign_PUBLICKEYBYTES];
   struct netpeerinfo *npi, *npi2;
+  struct addrinfo hints;
+  struct addrinfo *result;
 
   (void)handler_data;
+  if (!ci->is_tcp) {
+    return 1;
+  }
   for (n_line = 0, tmp_line = ci->lines; *tmp_line != NULL;
        ++tmp_line, ++n_line)
     ;
   if (ci->is_reply) {
-
-  } else {
-    if (n_line >= 3) {
+    if (n_line >= 4) {
       bin_len = 0;
-      s = sodium_base642bin(tmp_pk, sizeof tmp_pk, ci->lines[2],
-                            strlen(ci->lines[2]), NULL, (size_t *const)bin_len,
+      s = sodium_base642bin(tmp_pk, sizeof tmp_pk, ci->lines[3],
+                            strlen(ci->lines[3]), NULL, (size_t *const)bin_len,
                             NULL, sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
       if (s < 0) {
         fprintf(stderr, "announce_handler(); sodium_base642bin failed\n");
@@ -195,6 +198,99 @@ int announce_handler(struct cmdinfo *ci, void **handler_data) {
         free(npi);
         return -5;
       }
+
+      s = getaddrinfo(ci->lines[0], ci->lines[1], &hints, &result);
+      if (s != 0) {
+        fprintf(stderr, "announce_handler(); getaddrinfo failed\n");
+        free(npi->port);
+        free(npi->address);
+        free(npi);
+        return -6;
+      }
+
+      s = getnameinfo((struct sockaddr *)result->ai_addr, result->ai_addrlen,
+                      npi->address, NI_MAXHOST, npi->port, NI_MAXSERV,
+                      NI_NUMERICHOST | NI_NUMERICSERV);
+      if (s != 0) {
+        free(npi->pk);
+        free(npi->port);
+        free(npi->address);
+        free(npi);
+        freeaddrinfo(result);
+        return -7;
+      }
+      memcpy(npi->pk, tmp_pk, bin_len);
+      npi->pk_size = bin_len;
+      npi->role = 0;
+
+      already = 0;
+      LIST_FOREACH(npi2, &npi_que, e) {
+        if (strcmp(npi->address, npi2->address) == 0 &&
+            strcmp(npi->port, npi2->port) == 0) {
+          ++already;
+          break;
+        }
+      }
+      if (already && npi->pk_size == npi2->pk_size &&
+          memcmp(
+              npi->pk, npi2->pk,
+              (npi->pk_size > npi2->pk_size ? npi2->pk_size : npi->pk_size))) {
+        fprintf(stderr,
+                "announce_handler(); peer with address %s and port %s found "
+                "with different public key\n",
+                npi->address, npi->port);
+      }
+      if (already ||
+          (address_type((struct sockaddr *)&ci->sa, ci->sa_len) == 2 &&
+           address_type(result->ai_addr, result->ai_addrlen) ==
+               1) // Globally routable address shares locally routable peer
+      ) {
+        free(npi->address);
+        free(npi->port);
+        free(npi->pk);
+        free(npi);
+      } else {
+        LIST_INSERT_HEAD(&npi_que, npi, e);
+      }
+      freeaddrinfo(result);
+      return 1;
+    }
+  } else {
+    if (n_line >= 3) {
+      bin_len = 0;
+      s = sodium_base642bin(tmp_pk, sizeof tmp_pk, ci->lines[2],
+                            strlen(ci->lines[2]), NULL, (size_t *const)bin_len,
+                            NULL, sodium_base64_VARIANT_ORIGINAL_NO_PADDING);
+      if (s < 0) {
+        fprintf(stderr, "announce_handler(); sodium_base642bin failed\n");
+        return -8;
+      }
+      npi = calloc(1, sizeof *npi);
+      if (npi == NULL) {
+        fprintf(stderr, "announce_handler(); calloc failed\n");
+        return -9;
+      }
+      npi->address = calloc(NI_MAXHOST, sizeof(char));
+      if (npi->address == NULL) {
+        fprintf(stderr, "announce_handler(); calloc failed\n");
+        free(npi);
+        return -10;
+      }
+      npi->port = calloc(NI_MAXSERV, sizeof(char));
+      if (npi->port == NULL) {
+        fprintf(stderr, "announce_handler(); calloc failed\n");
+        free(npi->address);
+        free(npi);
+        return -11;
+      }
+      npi->pk = calloc(bin_len, sizeof(unsigned char));
+      if (npi->pk == NULL) {
+        fprintf(stderr, "announce_handler(); calloc failed\n");
+        free(npi->port);
+        free(npi->address);
+        free(npi);
+        return -12;
+      }
       s = getnameinfo((struct sockaddr *)&ci->sa, ci->sa_len, npi->address,
                       NI_MAXHOST, npi->port, NI_MAXSERV,
                       NI_NUMERICHOST | NI_NUMERICSERV);
@@ -203,7 +299,7 @@ int announce_handler(struct cmdinfo *ci, void **handler_data) {
         free(npi->port);
         free(npi->address);
         free(npi);
-        return -6;
+        return -13;
       }
       memcpy(npi->pk, tmp_pk, bin_len);
       npi->pk_size = bin_len;
