@@ -2,3 +2,4 @@ Create a list of commands to be accepted through udp or tcp
 Reminder that udp packets must be of same size in requests and responses to prevent DDoS amplification attacks
 Create data flow documentation for each command
 Add peers that send commands to the server to the peer list
+Refactor code heavily to actually make it look nice, at least a little maintainable and not prohibitive to collaborative development
