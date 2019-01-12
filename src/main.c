@@ -147,17 +147,18 @@ int address_type(struct sockaddr_storage *sa, socklen_t sa_len) {
 }
 
 int announce_handler(struct cmdinfo *ci, void **handler_data) {
-  int s;
+  int s, already;
   size_t n_line, bin_len;
   char **tmp_line;
   static unsigned char tmp_pk[crypto_sign_PUBLICKEYBYTES];
-  struct netpeerinfo *npi;
+  struct netpeerinfo *npi, *npi2;
 
   (void)handler_data;
   for (n_line = 0, tmp_line = ci->lines; *tmp_line != NULL;
        ++tmp_line, ++n_line)
     ;
   if (ci->is_reply) {
+
   } else {
     if (n_line >= 3) {
       bin_len = 0;
@@ -186,7 +187,7 @@ int announce_handler(struct cmdinfo *ci, void **handler_data) {
         free(npi);
         return -4;
       }
-      npi->pk = calloc(1, sizeof tmp_pk);
+      npi->pk = calloc(bin_len, sizeof(unsigned char));
       if (npi->pk == NULL) {
         fprintf(stderr, "announce_handler(); calloc failed\n");
         free(npi->port);
@@ -204,8 +205,39 @@ int announce_handler(struct cmdinfo *ci, void **handler_data) {
         free(npi);
         return -6;
       }
+      memcpy(npi->pk, tmp_pk, bin_len);
+      npi->pk_size = bin_len;
+      npi->role = 0;
+
+      already = 0;
+      LIST_FOREACH(npi2, &npi_que, e) {
+        if (strcmp(npi->address, npi2->address) == 0 &&
+            strcmp(npi->port, npi2->port) == 0) {
+          ++already;
+          break;
+        }
+      }
+      if (already && npi->pk_size == npi2->pk_size &&
+          memcmp(
+              npi->pk, npi2->pk,
+              (npi->pk_size > npi2->pk_size ? npi2->pk_size : npi->pk_size))) {
+        fprintf(stderr,
+                "announce_handler(); peer with address %s and port %s found "
+                "with different public key\n",
+                npi->address, npi->port);
+      }
+      if (already) {
+        free(npi->address);
+        free(npi->port);
+        free(npi->pk);
+        free(npi);
+      } else {
+        LIST_INSERT_HEAD(&npi_que, npi, e);
+      }
+      return 1;
     }
   }
+  return 0;
 }
 
 int main(void) {
