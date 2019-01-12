@@ -32,6 +32,9 @@
 extern LIST_HEAD(cmd_handlers, cmd_handler) handler_que;
 extern LIST_HEAD(cp_head, conn_pending) cp_que;
 extern LIST_HEAD(npi_head, netpeerinfo) npi_que;
+extern struct peerinfo g_pi;
+extern char *g_announce;
+
 /*
 int create_tcp_client(char *address, char *port) {
   int s, tcp_sock;
@@ -354,6 +357,34 @@ int on_connect_ping(struct conn_pending *cp, void **p_cb_data) {
   pd = *(struct pending_data **)p_cb_data;
   if (send(cp->fd, pd->buf, pd->size, 0) == -1) {
     fprintf(stderr, "on_connect_ping(); send failed\n");
+    free(pd->buf);
+    return -4;
+  }
+  free(pd->buf);
+  return 1;
+}
+
+int on_connect_announce(struct conn_pending *cp, void **p_cb_data) {
+  struct pending_data *pd;
+
+  if (cp == NULL) {
+    fprintf(stderr, "on_connect_announce(); cp == NULL\n");
+    return -1;
+  }
+  if (p_cb_data == NULL) {
+    fprintf(stderr, "on_connect_announce(); p_cb_data == NULL\n");
+    return -2;
+  }
+  if (cp->status != 0) {
+    fprintf(stderr,
+            "on_connect_announce(); connect failed on fd %d with status %d\n",
+            cp->fd, cp->status);
+    return -3;
+  }
+
+  pd = *(struct pending_data **)p_cb_data;
+  if (send(cp->fd, pd->buf, pd->size, 0) == -1) {
+    fprintf(stderr, "on_connect_announce(); send failed\n");
     free(pd->buf);
     return -4;
   }
@@ -698,9 +729,7 @@ int server_loop(int udp_fd, int tcp_fd) {
           continue;
         }
 
-        pd->buf = (unsigned char *)strdup(
-            "unilink\n0\n0\nGreetings!\nI am a member of the "
-            "unilink network.\n0\n\n");
+        pd->buf = (unsigned char *)strdup(g_announce);
         if (pd->buf == NULL) {
           fprintf(stderr, "server_loop(); strdup failed\n");
           free(pd);
@@ -710,7 +739,7 @@ int server_loop(int udp_fd, int tcp_fd) {
         pd->size = strlen((char *)pd->buf);
 
         cp->cb_data = pd;
-        cp->f = on_connect_ping;
+        cp->f = on_connect_announce;
         LIST_INSERT_HEAD(&cp_que, cp, e);
 
         fds[nfds].fd = sfd;
