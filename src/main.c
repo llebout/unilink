@@ -101,6 +101,10 @@ int address_type(struct sockaddr_storage *sa, socklen_t sa_len) {
       sin = (struct sockaddr_in *)sa;
       b = (unsigned char *)&sin->sin_addr;
     } else {
+      if (sa_len < sizeof *sin6) {
+        fprintf(stderr, "address_type(); sa_len < sizeof *sin6\n");
+        return -3;
+      }
       b = (sizeof(struct in6_addr) - sizeof(struct in_addr) +
            (unsigned char *)&((struct sockaddr_in6 *)&sa)->sin6_addr);
     }
@@ -122,7 +126,7 @@ int address_type(struct sockaddr_storage *sa, socklen_t sa_len) {
   } else if (sa->ss_family == AF_INET6) {
     if (sa_len < sizeof *sin6) {
       fprintf(stderr, "address_type(); sa_len < sizeof *sin6\n");
-      return -3;
+      return -4;
     }
     sin6 = (struct sockaddr_in6 *)sa;
     if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr) ||
@@ -138,7 +142,7 @@ int address_type(struct sockaddr_storage *sa, socklen_t sa_len) {
       return 2; // Globally routable
     }
   } else {
-    return -4;
+    return -5;
   }
 }
 
