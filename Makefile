@@ -6,7 +6,7 @@ LDFLAGS += `pkg-config --libs libsodium`
 
 NAME = unilink
 
-SRCS = src/main.c src/server.c src/peerinfo.c
+SRCS = src/main.c src/server.c src/peerinfo.c src/net.c
 OBJS = ${SRCS:.c=.o}
 
 $(NAME): $(OBJS)

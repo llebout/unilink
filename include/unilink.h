@@ -131,4 +131,6 @@ struct pending_data {
   unsigned char *buf;
 };
 
+int address_type(struct sockaddr *sa, socklen_t sa_len);
+
 #endif

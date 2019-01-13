@@ -27,10 +27,12 @@
 #include <queue.h>
 #include <unilink.h>
 
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+
 #define LOG_ERR(fmt, ...)                                                      \
   do {                                                                         \
-    fprintf(stderr, __func__ "(..); " fmt "\n", __VA_ARGS__);                  \
-  } while (false);
+    fprintf(stderr, "%s(..); " fmt "\n", __func__, __VA_ARGS__);               \
+  } while (0);
 
 struct net_buffer {
   size_t size;
@@ -101,11 +103,14 @@ int shrink_start_net_buffer(struct net_buffer *nb, size_t n) {
 
 void free_net_buffer(struct net_buffer *nb) { free(nb->buf); }
 
+typedef void free_handler_data(void *);
+
 struct cmd_state {
-  LIST_ENTRY(cmd_stack) e;
+  LIST_ENTRY(cmd_state) e;
   uint32_t channel;
   uint32_t type;
   void *handler_data;
+  free_handler_data *free;
 };
 
 int add_cmd_state(struct cmd_state *cs, uint32_t channel, uint32_t type,
@@ -158,7 +163,7 @@ int net_addr_from_sockaddr(struct net_addr *na, struct sockaddr_storage *sa,
   }
 
   s = getnameinfo((struct sockaddr *)sa, salen, na->host, sizeof na->host,
-                  na->serv, sizeof na->serv, NI_NUMERICHOST | NI_NUMERICSERV);
+                  na->port, sizeof na->port, NI_NUMERICHOST | NI_NUMERICSERV);
   if (s != 0) {
     LOG_ERR("getnameinfo failed", 0);
     return -3;
@@ -170,17 +175,40 @@ int net_addr_from_sockaddr(struct net_addr *na, struct sockaddr_storage *sa,
     return -4;
   }
 
+  na->sa = *sa;
+  na->salen = salen;
+
   return 0;
 }
 
-int net_addr_from_host_port() {}
+int net_addr_from_fd(struct net_addr *na, int fd) {
+  int s;
 
-int net_addr_from_fd() {}
+  if (na == NULL) {
+    LOG_ERR("na == NULL", 0);
+    return -1;
+  }
+
+  na->salen = sizeof na->sa;
+  s = getsockname(fd, (struct sockaddr *)&na->sa, &na->salen);
+  if (s != 0) {
+    LOG_ERR("getsockname failed", 0);
+    return -2;
+  }
+
+  s = net_addr_from_sockaddr(na, &na->sa, na->salen);
+  if (s < 0) {
+    LOG_ERR("net_addr_from_sockaddr failed", 0);
+    return -3;
+  }
+
+  return 0;
+}
 
 struct net_fd {
   LIST_ENTRY(net_fd) e;
   int fd;
-  struct net_addr _addr;
+  struct net_addr addr;
   struct net_tcp tcp;
   struct net_buffer nbuf;
   LIST_HEAD(cmd_states, cmd_state) cmd_que;
@@ -192,4 +220,82 @@ struct net_context {
   LIST_HEAD(net_fds, net_fd) fd_que;
 };
 
-void net_loop(int udp_servfd, int tcp_servfd) {}
+int net_context_add_fd(struct net_context *nc, struct net_fd **nf, int fd) {
+  void *p;
+  struct net_fd *elem_nf;
+
+  if (nc == NULL) {
+    LOG_ERR("nc == NULL", 0);
+    return -1;
+  }
+
+  p = realloc(nc->fds, nc->nfds * (sizeof *nc->fds + 1));
+  if (p == NULL) {
+    LOG_ERR("p == NULL", 0);
+    return -2;
+  }
+
+  elem_nf = calloc(1, sizeof *elem_nf);
+  if (elem_nf == NULL) {
+    LOG_ERR("calloc failed", 0);
+    free(p);
+    return -3;
+  }
+
+  nc->fds = p;
+  memset(&nc->fds[nc->nfds], 0, sizeof *nc->fds);
+  nc->fds[nc->nfds].fd = fd;
+  ++nc->nfds;
+
+  elem_nf->fd = fd;
+  LIST_INSERT_HEAD(&nc->fd_que, elem_nf, e);
+
+  if (nf != NULL) {
+    *nf = elem_nf;
+  }
+
+  return 0;
+}
+
+int net_context_del_fd(struct net_context *nc, int fd) {
+  size_t i, k;
+  struct net_fd *elem_nf;
+  struct cmd_state *elem_cs;
+
+  if (nc == NULL) {
+    LOG_ERR("nc == NULL", 0);
+    return -1;
+  }
+
+  LIST_FOREACH(elem_nf, &nc->fd_que, e) {
+    if (elem_nf->fd == fd) {
+      LIST_REMOVE(elem_nf, e);
+      break;
+    }
+  }
+
+  for (i = 0; i < nc->nfds; ++i) {
+    if (nc->fds[i].fd == fd) {
+      --nc->nfds;
+      for (k = i; k < nc->nfds; ++k) {
+        memcpy(&nc->fds[k], &nc->fds[k + 1], sizeof *nc->fds);
+      }
+      break;
+    }
+  }
+
+  free_net_buffer(&elem_nf->nbuf);
+
+  while (!LIST_EMPTY(&elem_nf->cmd_que)) {
+    elem_cs = LIST_FIRST(&elem_nf->cmd_que);
+    LIST_REMOVE(elem_cs, e);
+    elem_cs->free(elem_cs->handler_data);
+    free(elem_cs);
+  }
+
+  free(elem_nf);
+
+  return 0;
+}
+
+// void net_loop(int udp_servfd, int tcp_servfd) {}
