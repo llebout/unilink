@@ -5,7 +5,7 @@
 
 #include <sodium.h>
 
-#include <unilink.h>
+#include "../include/unilink.h"
 
 int read_peerinfo(struct peerinfo *pi) {
   FILE *fp;

@@ -1,4 +1,4 @@
-CFLAGS += -Wall -Werror -Wextra -Iinclude
+CFLAGS += -Wall -Werror -Wextra
 LDFLAGS += 
 
 CFLAGS += `pkg-config --cflags libsodium`

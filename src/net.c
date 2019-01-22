@@ -24,8 +24,8 @@
 
 #include <sodium.h>
 
-#include <queue.h>
-#include <unilink.h>
+#include "../include/queue.h"
+#include "../include/unilink.h"
 
 #pragma GCC diagnostic ignored "-Wformat-extra-args"
 
@@ -214,6 +214,57 @@ struct net_fd {
   LIST_HEAD(cmd_states, cmd_state) cmd_que;
 };
 
+struct net_context;
+
+typedef int func_periodic_task(struct net_context *, void *);
+
+struct periodic_task {
+  LIST_ENTRY (periodic_task) e;
+  time_t interval;
+  time_t last_call;
+  func_periodic_task *f;
+};
+
+int register_periodic_task(struct periodic_task *pt, func_periodic_task *f, time_t interval) {
+  struct periodic_task *elem_pt;
+
+  if (pt == NULL) {
+    LOG_ERR("pt == NULL", 0);
+    return -1;
+  }
+
+  if (f == NULL) {
+    LOG_ERR ("f == NULL", 0);
+    return -2;
+  }
+
+  elem_pt = calloc(1, sizeof *elem_pt);
+  if (elem_pt == NULL) {
+    LOG_ERR("calloc failed", 0);
+    return -3;
+  }
+
+  elem_pt->interval = interval;
+  elem_pt->f = f;
+
+  LIST_INSERT_AFTER(pt, elem_pt, e);
+
+  return 0;
+}
+
+int unregister_periodic_task(struct periodic_task *pt) {
+  if (pt == NULL) {
+    LOG_ERR("pt == NULL", 0);
+    return -1;
+  }
+
+  LIST_REMOVE(pt, e);
+
+  free(pt);
+
+  return 0;
+}
+
 struct net_context {
   size_t nfds;
   struct pollfd *fds;
@@ -298,4 +349,12 @@ int net_context_del_fd(struct net_context *nc, int fd) {
   return 0;
 }
 
-// void net_loop(int udp_servfd, int tcp_servfd) {}
+void net_loop(int udp_servfd, int tcp_servfd) {
+  struct net_context ctx;
+
+  (void)udp_servfd;
+  (void)tcp_servfd;
+  memset(&ctx, 0, sizeof ctx);
+  LIST_INIT (&ctx.fd_que);
+
+}

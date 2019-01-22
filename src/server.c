@@ -26,8 +26,8 @@
 
 #include <sodium.h>
 
-#include <queue.h>
-#include <unilink.h>
+#include "../include/queue.h"
+#include "../include/unilink.h"
 
 extern LIST_HEAD(cmd_handlers, cmd_handler) handler_que;
 extern LIST_HEAD(cp_head, conn_pending) cp_que;

@@ -18,7 +18,7 @@
 
 #include <sodium.h>
 
-#include <unilink.h>
+#include "../include/unilink.h"
 
 /* static char *test_command =
 "unilink\n"

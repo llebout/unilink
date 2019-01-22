@@ -5,7 +5,7 @@
 #include <sys/socket.h>
 #include <time.h>
 
-#include <queue.h>
+#include "../include/queue.h"
 
 #define UNILINK_NETWORK_MAGIC "unilink"
 #define UNILINK_PEERINFO "unilink_peerinfo"
