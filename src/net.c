@@ -271,7 +271,7 @@ struct net_context {
   LIST_HEAD(net_fds, net_fd) fd_que;
 };
 
-int net_context_add_fd(struct net_context *nc, struct net_fd **nf, int fd) {
+int net_context_add_fd(struct net_context *nc, struct net_fd **nf, struct pollfd **pf, int fd) {
   void *p;
   struct net_fd *elem_nf;
 
@@ -295,7 +295,12 @@ int net_context_add_fd(struct net_context *nc, struct net_fd **nf, int fd) {
 
   nc->fds = p;
   memset(&nc->fds[nc->nfds], 0, sizeof *nc->fds);
+
   nc->fds[nc->nfds].fd = fd;
+  if (pf != NULL) {
+    *pf = &nc->fds[nc->nfds];
+  }
+
   ++nc->nfds;
 
   elem_nf->fd = fd;
@@ -307,6 +312,11 @@ int net_context_add_fd(struct net_context *nc, struct net_fd **nf, int fd) {
 
   return 0;
 }
+
+/*
+ * We must break out of the poll loop after calling this function
+ * to avoid corrupting the nfds counter.
+ */
 
 int net_context_del_fd(struct net_context *nc, int fd) {
   size_t i, k;
@@ -349,12 +359,149 @@ int net_context_del_fd(struct net_context *nc, int fd) {
   return 0;
 }
 
-void net_loop(int udp_servfd, int tcp_servfd) {
-  struct net_context ctx;
+int net_context_find_net_fd(struct net_context *nc, int fd,
+                            struct net_fd **nf) {
+  struct net_fd *elem_nf;
 
-  (void)udp_servfd;
-  (void)tcp_servfd;
+  if (nc == NULL) {
+    LOG_ERR("nc == NULL", 0);
+    return -1;
+  }
+
+  if (nf == NULL) {
+    LOG_ERR("nf == NULL", 0);
+    return -2;
+  }
+
+  LIST_FOREACH(elem_nf, &nc->fd_que, e) {
+    if (elem_nf->fd == fd) {
+      *nf = elem_nf;
+      break;
+    }
+  }
+
+  return 0;
+}
+
+int net_context_fd_net_buffer_size(struct net_context *nc, int fd) {
+  struct net_fd *nf;
+  int s;
+
+  if (nc == NULL) {
+    LOG_ERR("nc == NULL", 0);
+    return -1;
+  }
+
+  s = net_context_find_net_fd(nc, fd, &nf);
+  if (s < 0) {
+    LOG_ERR("net_context_find_net_fd failed", 0);
+    return -2;
+  }
+
+  return nf->;
+}
+
+int net_loop(int udp_servfd, int tcp_servfd) {
+  struct net_context ctx;
+  struct net_fd *nf;
+  struct pollfd *pf, *pf2;
+  int s, accept_sock;
+  unsigned char *recv_buf;
+  size_t i, recv_buf_size;
+  ssize_t received_size;
+  struct sockaddr_storage accept_sa;
+  socklen_t accept_sa_len;
+  unsigned char *start_of_end;
+
   memset(&ctx, 0, sizeof ctx);
   LIST_INIT (&ctx.fd_que);
 
+  recv_buf_size = sysconf(_SC_PAGESIZE);
+  recv_buf = calloc(1, recv_buf_size);
+  if (recv_buf == NULL) {
+    LOG_ERR("calloc failed", 0);
+    return -1;
+  }
+
+  s = net_context_add_fd(&ctx, NULL, &pf, udp_servfd);
+  if (s < 0) {
+    LOG_ERR("net_context_add_fd failed", 0);
+    return -2;
+  }
+
+  pf->events = POLLIN;
+
+  s = net_context_add_fd(&ctx, NULL, &pf, tcp_servfd);
+  if (s < 0) {
+    LOG_ERR("net_context_add_fd failed", 0);
+    return -3;
+  }
+
+  pf->events = POLLIN;
+
+  while ((s = poll(ctx.fds, ctx.nfds, 1000)) != -1) {
+    for (i = 0; i < ctx.nfds; ++i) {
+      pf = &ctx.fds[i];
+
+      if (pf->revents & POLLIN) {
+        if (pf->fd == udp_servfd) {
+          // Process UDP packet
+        } else if (pf->fd == tcp_servfd) {
+          accept_sa_len = sizeof accept_sa;
+          accept_sock =
+              accept(pf->fd, (struct sockaddr *)&accept_sa, &accept_sa_len);
+          if (accept_sock == -1) {
+            LOG_ERR("accept failed", 0);
+            continue;
+          }
+
+          s = net_context_add_fd(&ctx, NULL, &pf2, pf->fd);
+          if (s < 0) {
+            LOG_ERR("net_context_add_fd failed", 0);
+            close(accept_sock);
+            continue;
+          }
+        } else {
+          received_size = recv(pf->fd, recv_buf, recv_buf_size, 0);
+          if (received_size == -1) {
+            LOG_ERR("recv failed", 0);
+            close(pf->fd);
+            s = net_context_del_fd(&ctx, pf->fd);
+            if (s < 0) {
+              LOG_ERR("net_context_del_fd failed", 0);
+            }
+            break;
+          }
+
+          if (is_complete_command(recv_buf, received_size, &start_of_end)) {
+            // Process complete command
+          } else {
+            s = net_context_find_fd(&ctx, pf->fd, &nf);
+            if (s < 0) {
+              LOG_ERR("net_context_find_fd failed", 0);
+              close(pf->fd);
+              s = net_context_del_fd(&ctx, pf->fd);
+              if (s < 0) {
+                LOG_ERR("net_context_del_fd failed", 0);
+              }
+              break;
+            }
+
+            s = grow_net_buffer(&nf->nbuf, recv_buf, received_size);
+            if (s < 0) {
+              LOG_ERR("grow_net_buffer failed", 0);
+              close(pf->fd);
+              s = net_context_del_fd(&ctx, pf->fd);
+              if (s < 0) {
+                LOG_ERR("net_context_del_fd failed", 0);
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return 0;
 }
