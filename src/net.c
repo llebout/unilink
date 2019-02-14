@@ -136,9 +136,12 @@ int add_cmd_state(struct cmd_state *cs, uint32_t channel, uint32_t type,
   return 0;
 }
 
+typedef int on_tcp_connect(struct net_fd *, int connect_err);
+
 struct net_tcp {
   int is_connected;
   int is_active;
+  on_tcp_connect *cb;
 };
 
 struct net_addr {
@@ -383,32 +386,14 @@ int net_context_find_net_fd(struct net_context *nc, int fd,
   return 0;
 }
 
-int net_context_fd_net_buffer_size(struct net_context *nc, int fd) {
-  struct net_fd *nf;
-  int s;
-
-  if (nc == NULL) {
-    LOG_ERR("nc == NULL", 0);
-    return -1;
-  }
-
-  s = net_context_find_net_fd(nc, fd, &nf);
-  if (s < 0) {
-    LOG_ERR("net_context_find_net_fd failed", 0);
-    return -2;
-  }
-
-  return nf->;
-}
-
 int net_loop(int udp_servfd, int tcp_servfd) {
   struct net_context ctx;
   struct net_fd *nf;
   struct pollfd *pf, *pf2;
-  int s, accept_sock;
+  int s, accept_sock, connect_err;
   unsigned char *recv_buf;
   size_t i, recv_buf_size;
-  ssize_t received_size;
+  ssize_t received_size, end_size;
   struct sockaddr_storage accept_sa;
   socklen_t accept_sa_len;
   unsigned char *start_of_end;
@@ -473,30 +458,68 @@ int net_loop(int udp_servfd, int tcp_servfd) {
             break;
           }
 
-          if (is_complete_command(recv_buf, received_size, &start_of_end)) {
-            // Process complete command
-          } else {
-            s = net_context_find_fd(&ctx, pf->fd, &nf);
+          s = net_context_find_net_fd(&ctx, pf->fd, &nf);
+          if (s < 0) {
+            LOG_ERR("net_context_find_net_fd failed", 0);
+            close(pf->fd);
+            s = net_context_del_fd(&ctx, pf->fd);
             if (s < 0) {
-              LOG_ERR("net_context_find_fd failed", 0);
-              close(pf->fd);
-              s = net_context_del_fd(&ctx, pf->fd);
-              if (s < 0) {
-                LOG_ERR("net_context_del_fd failed", 0);
-              }
-              break;
+              LOG_ERR("net_context_del_fd failed", 0);
             }
+            break;
+          }
 
-            s = grow_net_buffer(&nf->nbuf, recv_buf, received_size);
+          nf->tcp.is_active = 1;
+
+          if (nf->nbuf.size == 0 &&
+              (end_size = is_complete_command(recv_buf, received_size,
+                                              &start_of_end)) > 0) {
+            // Process complete command
+            continue; // or break;
+          }
+
+          s = grow_net_buffer(&nf->nbuf, recv_buf, received_size);
+          if (s < 0) {
+            LOG_ERR("grow_net_buffer failed", 0);
+            close(pf->fd);
+            s = net_context_del_fd(&ctx, pf->fd);
             if (s < 0) {
-              LOG_ERR("grow_net_buffer failed", 0);
-              close(pf->fd);
-              s = net_context_del_fd(&ctx, pf->fd);
-              if (s < 0) {
-                LOG_ERR("net_context_del_fd failed", 0);
-              }
-              break;
+              LOG_ERR("net_context_del_fd failed", 0);
             }
+            break;
+          }
+        }
+      } else if (pf->revents & POLLOUT) {
+        s = getsockopt(pf->fd, SOL_SOCKET, SO_ERROR, &connect_err,
+                       sizeof connect_err);
+        if (s == -1) {
+          LOG_ERR("getsockopt failed", 0);
+          close(pf->fd);
+          s = net_context_del_fd(&ctx, pf->fd);
+          if (s < 0) {
+            LOG_ERR("net_context_del_fd failed", 0);
+          }
+          break;
+        }
+
+        s = net_context_find_net_fd(&ctx, pf->fd, &nf);
+        if (s < 0) {
+          LOG_ERR("net_context_find_net_fd failed", 0);
+          close(pf->fd);
+          s = net_context_del_fd(&ctx, pf->fd);
+          if (s < 0) {
+            LOG_ERR("net_context_del_fd failed", 0);
+          }
+          break;
+        }
+
+        s = nf->tcp.cb(nf, connect_err);
+        if (s < 0) {
+          LOG_ERR("A TCP connect callback encountered an error", 0);
+          close(pf->fd);
+          s = net_context_del_fd(&ctx, pf->fd);
+          if (s < 0) {
+            LOG_ERR("net_context_del_fd failed", 0);
           }
         }
       }
