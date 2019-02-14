@@ -136,6 +136,8 @@ int add_cmd_state(struct cmd_state *cs, uint32_t channel, uint32_t type,
   return 0;
 }
 
+struct net_fd;
+
 typedef int on_tcp_connect(struct net_fd *, int connect_err);
 
 struct net_tcp {
@@ -395,7 +397,7 @@ int net_loop(int udp_servfd, int tcp_servfd) {
   size_t i, recv_buf_size;
   ssize_t received_size, end_size;
   struct sockaddr_storage accept_sa;
-  socklen_t accept_sa_len;
+  socklen_t accept_sa_len, optlen;
   unsigned char *start_of_end;
 
   memset(&ctx, 0, sizeof ctx);
@@ -490,8 +492,8 @@ int net_loop(int udp_servfd, int tcp_servfd) {
           }
         }
       } else if (pf->revents & POLLOUT) {
-        s = getsockopt(pf->fd, SOL_SOCKET, SO_ERROR, &connect_err,
-                       sizeof connect_err);
+        optlen = sizeof connect_err;
+        s = getsockopt(pf->fd, SOL_SOCKET, SO_ERROR, &connect_err, &optlen);
         if (s == -1) {
           LOG_ERR("getsockopt failed", 0);
           close(pf->fd);
