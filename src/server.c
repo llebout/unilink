@@ -217,18 +217,18 @@ ssize_t is_complete_command(unsigned char *buf, size_t size,
               *start_of_end = j;
               return j - buf + end_size;
             } else {
-              return -1;
+              return -2;
             }
           }
         }
-        return -1;
+        return -3;
       }
       line_len = 0;
     } else {
       ++line_len;
     }
   }
-  return -1;
+  return -4;
 }
 
 time_t elapsed_seconds() {

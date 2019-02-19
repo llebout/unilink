@@ -475,7 +475,7 @@ int main(void) {
   npi->port = "43756";
   LIST_INSERT_HEAD(&npi_que, npi, e);
 
-  server_loop(udp_fd, tcp_fd);
+  net_loop(udp_fd, tcp_fd);
 
   return EXIT_SUCCESS;
 }
